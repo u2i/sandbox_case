@@ -93,6 +93,30 @@ defmodule PhoenixTestOnly.Sandbox do
     end
   end
 
+  @doc """
+  Collects all plug modules declared by available adapters.
+  Used by `PhoenixTestOnly.sandbox_plugs/0` at compile time.
+  """
+  def collect_plugs do
+    resolved_adapters([])
+    |> Enum.flat_map(fn {adapter, _config} ->
+      if function_exported?(adapter, :plugs, 0), do: adapter.plugs(), else: []
+    end)
+    |> Enum.filter(&Code.ensure_loaded?/1)
+  end
+
+  @doc """
+  Collects all on_mount modules declared by available adapters.
+  Used by `PhoenixTestOnly.sandbox_on_mount/0` at compile time.
+  """
+  def collect_hooks do
+    resolved_adapters([])
+    |> Enum.flat_map(fn {adapter, _config} ->
+      if function_exported?(adapter, :hooks, 0), do: adapter.hooks(), else: []
+    end)
+    |> Enum.filter(&Code.ensure_loaded?/1)
+  end
+
   defp resolved_adapters(opts) do
     sandbox_config = opts[:sandbox] || Application.get_env(:phoenix_test_only, :sandbox, [])
     otp_app = opts[:otp_app] || Application.get_env(:phoenix_test_only, :otp_app)

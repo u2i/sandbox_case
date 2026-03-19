@@ -1,44 +1,75 @@
 defmodule PhoenixTestOnly do
   @moduledoc """
-  Compile-time conditional `plug` and `on_mount` for test-only modules.
+  Test sandbox orchestration and compile-time conditional `plug`/`on_mount`
+  for Phoenix apps.
 
-  Phoenix's `plug` and `on_mount` macros accumulate module attributes at the
-  top level. When wrapped in `if Application.compile_env(...)`, the call ends
-  up inside a `case` node in the AST and Phoenix silently ignores it.
+  ## Zero-arg macros (recommended)
 
-  These macros move the check to **macro expansion time**: the emitted code is
-  either a bare `plug`/`on_mount` call or nothing at all. They only emit in
-  test — if `Mix` isn't loaded (release) or `Mix.env()` isn't `:test`, nothing
-  is emitted.
-
-  ## Usage
+  Automatically emit all plugs and hooks declared by configured sandbox
+  adapters. Nothing to maintain — add an adapter to config and the plugs
+  and hooks appear.
 
       # endpoint.ex
       import PhoenixTestOnly
+      sandbox_plugs()
+
+      # your_app_web.ex live_view macro
+      import PhoenixTestOnly
+      sandbox_on_mount()
+
+  ## Explicit macros
+
+  For manual control, `plug_if_test` and `on_mount_if_test` emit a single
+  plug/hook only when `Mix.env() == :test`.
+
       plug_if_test Phoenix.Ecto.SQL.Sandbox
-      plug_if_test Wallabidi.Sandbox.Plug
+      on_mount_if_test Wallabidi.Sandbox.Hook
+  """
+
+  @doc """
+  Emits `plug(mod)` for every plug declared by configured sandbox adapters.
+  Emits nothing outside test env.
+
+  ## Example
+
+      # endpoint.ex
+      import PhoenixTestOnly
+      sandbox_plugs()
+  """
+  defmacro sandbox_plugs do
+    if test_env?() do
+      for mod <- PhoenixTestOnly.Sandbox.collect_plugs() do
+        quote do: plug(unquote(mod))
+      end
+    end
+  end
+
+  @doc """
+  Emits `on_mount(mod)` for every hook declared by configured sandbox adapters.
+  Emits nothing outside test env.
+
+  ## Example
 
       # your_app_web.ex
       def live_view do
         quote do
           use Phoenix.LiveView
           import PhoenixTestOnly
-          on_mount_if_test Wallabidi.Sandbox.Hook
+          sandbox_on_mount()
         end
       end
   """
+  defmacro sandbox_on_mount do
+    if test_env?() do
+      for mod <- PhoenixTestOnly.Sandbox.collect_hooks() do
+        quote do: on_mount(unquote(mod))
+      end
+    end
+  end
 
   @doc """
   Emits `plug(module)` if compiling in test env and the module is loaded;
   otherwise nothing.
-
-  Any extra options are forwarded as plug options.
-
-  ## Examples
-
-      plug_if_test Phoenix.Ecto.SQL.Sandbox
-      plug_if_test Wallabidi.Sandbox.Plug
-      plug_if_test MyPlug, some_option: true
   """
   defmacro plug_if_test(module, opts \\ []) do
     module = Macro.expand(module, __CALLER__)
@@ -55,10 +86,6 @@ defmodule PhoenixTestOnly do
   @doc """
   Emits `on_mount(module)` if compiling in test env and the module is loaded;
   otherwise nothing.
-
-  ## Examples
-
-      on_mount_if_test Wallabidi.Sandbox.Hook
   """
   defmacro on_mount_if_test(module, _opts \\ []) do
     module = Macro.expand(module, __CALLER__)

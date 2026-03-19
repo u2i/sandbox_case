@@ -38,6 +38,18 @@ defmodule PhoenixTestOnly.Sandbox.Ecto do
   @impl true
   def checkin(_token), do: :ok
 
+  @impl true
+  def plugs do
+    if Code.ensure_loaded?(Phoenix.Ecto.SQL.Sandbox) do
+      [Phoenix.Ecto.SQL.Sandbox]
+    else
+      []
+    end
+  end
+
+  @impl true
+  def hooks, do: []
+
   defp repos(config) do
     case config[:repos] do
       repos when is_list(repos) -> repos

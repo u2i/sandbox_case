@@ -26,5 +26,19 @@ defmodule PhoenixTestOnlyTest do
     test "ecto_metadata returns nil when no ecto token" do
       assert PhoenixTestOnly.Sandbox.ecto_metadata([]) == nil
     end
+
+    test "collect_plugs returns empty list when no adapters configured" do
+      prev = Application.get_env(:phoenix_test_only, :sandbox)
+      Application.put_env(:phoenix_test_only, :sandbox, [])
+      assert PhoenixTestOnly.Sandbox.collect_plugs() == []
+      if prev, do: Application.put_env(:phoenix_test_only, :sandbox, prev), else: Application.delete_env(:phoenix_test_only, :sandbox)
+    end
+
+    test "collect_hooks returns empty list when no adapters configured" do
+      prev = Application.get_env(:phoenix_test_only, :sandbox)
+      Application.put_env(:phoenix_test_only, :sandbox, [])
+      assert PhoenixTestOnly.Sandbox.collect_hooks() == []
+      if prev, do: Application.put_env(:phoenix_test_only, :sandbox, prev), else: Application.delete_env(:phoenix_test_only, :sandbox)
+    end
   end
 end

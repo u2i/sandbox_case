@@ -5,6 +5,10 @@ defmodule PhoenixTestOnly.Sandbox.Adapter do
   Each adapter handles setup (once in test_helper), checkout (per test),
   and checkin (on_exit). The adapter returns an opaque token from checkout
   that is passed back to checkin.
+
+  Adapters can optionally declare plug and on_mount modules to be
+  registered in endpoints and LiveViews via `sandbox_plugs()` and
+  `sandbox_on_mount()`.
   """
 
   @doc "One-time setup in test_helper. Receives adapter-specific config."
@@ -18,4 +22,12 @@ defmodule PhoenixTestOnly.Sandbox.Adapter do
 
   @doc "Whether this adapter is available (deps loaded)."
   @callback available?() :: boolean()
+
+  @doc "Plug modules to register in the endpoint. Return [] if none."
+  @callback plugs() :: [module()]
+
+  @doc "on_mount modules to register in LiveViews. Return [] if none."
+  @callback hooks() :: [module()]
+
+  @optional_callbacks [plugs: 0, hooks: 0]
 end
