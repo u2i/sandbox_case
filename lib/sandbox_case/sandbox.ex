@@ -78,14 +78,75 @@ defmodule SandboxCase.Sandbox do
   end
 
   @doc """
-  Per-test checkin. Accepts the list returned by `checkout/1`.
+  Per-test checkin. Waits for orphaned processes, then checks in all adapters.
+  Accepts the list returned by `checkout/1`.
   """
   def checkin(tokens) when is_list(tokens) do
+    drain_orphans(self())
+
     for {adapter, token} <- tokens do
       adapter.checkin(token)
     end
 
     :ok
+  end
+
+  @orphan_timeout 5_000
+  @orphan_poll_interval 50
+
+  @doc """
+  Wait for processes that have `owner` in their `$callers` chain to exit.
+  Prevents sandbox checkin from pulling the rug out from under async work.
+  """
+  def drain_orphans(owner, timeout \\ @orphan_timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_drain(owner, deadline)
+  end
+
+  defp do_drain(owner, deadline) do
+    orphans = find_orphans(owner)
+
+    if orphans == [] do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        pids = Enum.map(orphans, &inspect/1) |> Enum.join(", ")
+
+        IO.warn(
+          "SandboxCase: #{length(orphans)} process(es) still alive after timeout: #{pids}. " <>
+            "These may crash with DBConnection.OwnershipError."
+        )
+
+        :timeout
+      else
+        Process.sleep(@orphan_poll_interval)
+        do_drain(owner, deadline)
+      end
+    end
+  end
+
+  defp find_orphans(owner) do
+    self_pid = self()
+
+    Process.list()
+    |> Enum.filter(fn pid ->
+      pid != self_pid and pid != owner and has_caller?(pid, owner)
+    end)
+  end
+
+  defp has_caller?(pid, owner) do
+    case :erlang.process_info(pid, :dictionary) do
+      {:dictionary, dict} ->
+        case List.keyfind(dict, :"$callers", 0) do
+          {:"$callers", callers} -> owner in callers
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  catch
+    _, _ -> false
   end
 
   @doc """

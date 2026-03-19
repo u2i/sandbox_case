@@ -161,6 +161,31 @@ defmodule SandboxCase.IntegrationTest do
     end
   end
 
+  describe "Orphan draining" do
+    test "waits for spawned tasks to finish before checkin", %{sandbox_tokens: tokens} do
+      # Spawn a task that takes 200ms — without draining, checkin would
+      # happen immediately and the task would lose sandbox access.
+      {:ok, agent} = Agent.start_link(fn -> false end)
+
+      Task.start_link(fn ->
+        Process.sleep(200)
+        Repo.all(Item)
+        Agent.update(agent, fn _ -> true end)
+      end)
+
+      # Checkin drains orphans — waits for the task to finish
+      SandboxCase.Sandbox.checkin(tokens)
+
+      # The task completed successfully (no OwnershipError)
+      assert Agent.get(agent, & &1) == true
+      Agent.stop(agent)
+    end
+
+    test "drain_orphans returns :ok immediately when no orphans" do
+      assert :ok = SandboxCase.Sandbox.drain_orphans(self(), 100)
+    end
+  end
+
   # Build a conn with sandbox metadata encoded in the user-agent,
   # mimicking what a browser testing framework does.
   defp build_conn_with_sandbox(tokens) do
