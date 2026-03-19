@@ -40,15 +40,18 @@ defmodule PhoenixTestOnly.Sandbox.Ecto do
 
   @impl true
   def plugs do
-    if Code.ensure_loaded?(Phoenix.Ecto.SQL.Sandbox) do
-      [Phoenix.Ecto.SQL.Sandbox]
-    else
-      []
-    end
+    plug = Phoenix.Ecto.SQL.Sandbox
+    sandbox_plug = PhoenixTestOnly.Sandbox.Plug
+
+    Enum.filter([plug, sandbox_plug], &Code.ensure_loaded?/1)
   end
 
   @impl true
-  def hooks, do: []
+  def hooks do
+    hook = PhoenixTestOnly.Sandbox.Hook
+
+    if Code.ensure_loaded?(hook), do: [hook], else: []
+  end
 
   defp repos(config) do
     case config[:repos] do

@@ -2,7 +2,7 @@ defmodule PhoenixTestOnly.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/pinetops/phoenix_test_only"
-  @version "0.3.1"
+  @version "0.4.0"
 
   def project do
     [
@@ -23,6 +23,9 @@ defmodule PhoenixTestOnly.MixProject do
 
   defp deps do
     [
+      {:plug, "~> 1.14", optional: true},
+      {:phoenix_live_view, "~> 1.0", optional: true},
+      {:phoenix_ecto, "~> 4.0", optional: true},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false}
     ]
   end
