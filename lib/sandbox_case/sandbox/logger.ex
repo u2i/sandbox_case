@@ -45,7 +45,7 @@ defmodule SandboxCase.Sandbox.Logger do
   @impl true
   def setup(_config) do
     :ets.new(@table, [:named_table, :public, :bag])
-    :logger.add_handler(@handler_id, __MODULE__, %{})
+    :logger.add_handler(@handler_id, __MODULE__, %{level: :all})
     :ok
   rescue
     ArgumentError -> :ok
