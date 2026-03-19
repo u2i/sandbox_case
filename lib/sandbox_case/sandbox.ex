@@ -68,7 +68,10 @@ defmodule SandboxCase.Sandbox do
   Pass to `checkin/1` in `on_exit`.
   """
   def checkout(opts \\ []) do
+    async? = Keyword.get(opts, :async?, false)
+
     for {adapter, config} <- resolved_adapters(opts) do
+      config = if Keyword.keyword?(config), do: Keyword.put(config, :async?, async?), else: config
       {adapter, adapter.checkout(config)}
     end
   end
@@ -150,6 +153,14 @@ defmodule SandboxCase.Sandbox do
   end
 
   defp normalize_config(true, otp_app), do: [otp_app: otp_app]
-  defp normalize_config(config, otp_app) when is_list(config), do: Keyword.put_new(config, :otp_app, otp_app)
+
+  defp normalize_config(config, otp_app) when is_list(config) do
+    if Keyword.keyword?(config) do
+      Keyword.put_new(config, :otp_app, otp_app)
+    else
+      config
+    end
+  end
+
   defp normalize_config(config, _otp_app), do: config
 end

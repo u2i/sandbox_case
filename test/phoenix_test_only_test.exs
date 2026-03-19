@@ -19,7 +19,7 @@ defmodule SandboxCaseTest do
     end
 
     test "skips unavailable adapters" do
-      tokens = SandboxCase.Sandbox.checkout(sandbox: [cachex: [:nonexistent]])
+      tokens = SandboxCase.Sandbox.checkout(sandbox: [redis: [url: "redis://nope"]])
       assert tokens == []
     end
 

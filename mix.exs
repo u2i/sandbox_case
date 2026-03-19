@@ -9,6 +9,7 @@ defmodule SandboxCase.MixProject do
       app: :sandbox_case,
       version: @version,
       elixir: "~> 1.15",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       package: package(),
       description: "Batteries-included test isolation for Elixir and Phoenix.",
@@ -16,6 +17,9 @@ defmodule SandboxCase.MixProject do
       docs: docs()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [extra_applications: []]
@@ -26,7 +30,17 @@ defmodule SandboxCase.MixProject do
       {:plug, "~> 1.14", optional: true},
       {:phoenix_live_view, "~> 1.0", optional: true},
       {:phoenix_ecto, "~> 4.0", optional: true},
-      {:ex_doc, "~> 0.28", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.28", only: :dev, runtime: false},
+      # Test deps — full Phoenix app for integration tests
+      {:jason, "~> 1.0", only: :test},
+      {:ecto_sql, "~> 3.12", only: :test},
+      {:ecto_sqlite3, "~> 0.22", only: :test},
+      {:bandit, "~> 1.0", only: :test},
+      {:cachex, github: "pinetops/cachex", branch: "cachex-sandbox", only: :test},
+      {:fun_with_flags, github: "pinetops/fun_with_flags", branch: "fwf-sandbox", only: :test, runtime: false},
+      {:mimic, "~> 1.7", only: :test},
+      {:mox, "~> 1.2", only: :test},
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 

@@ -9,9 +9,16 @@ defmodule SandboxCase.Sandbox.Cachex do
 
   @impl true
   def setup(config) do
-    names = config[:names] || config
+    names = extract_names(config)
     {:ok, _} = Cachex.Sandbox.start(names)
     :ok
+  end
+
+  defp extract_names(config) when is_list(config) do
+    case Keyword.get(config, :names) do
+      nil -> Enum.filter(config, &is_atom/1)
+      names -> names
+    end
   end
 
   @impl true
