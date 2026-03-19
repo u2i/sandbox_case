@@ -161,28 +161,29 @@ defmodule SandboxCase.IntegrationTest do
     end
   end
 
-  describe "Orphan draining" do
-    test "waits for spawned tasks to finish before checkin", %{sandbox_tokens: tokens} do
-      # Spawn a task that takes 200ms — without draining, checkin would
-      # happen immediately and the task would lose sandbox access.
-      {:ok, agent} = Agent.start_link(fn -> false end)
+  describe "Orphan cleanup" do
+    test "kills orphaned processes on checkin" do
+      # Spawn a process with our pid in $callers
+      test_pid = self()
 
-      Task.start_link(fn ->
-        Process.sleep(200)
-        Repo.all(Item)
-        Agent.update(agent, fn _ -> true end)
-      end)
+      {:ok, orphan} =
+        Task.start(fn ->
+          Process.put(:"$callers", [test_pid])
+          Process.sleep(:infinity)
+        end)
 
-      # Checkin drains orphans — waits for the task to finish
-      SandboxCase.Sandbox.checkin(tokens)
+      Process.sleep(10)
+      assert Process.alive?(orphan)
 
-      # The task completed successfully (no OwnershipError)
-      assert Agent.get(agent, & &1) == true
-      Agent.stop(agent)
+      # kill_orphans finds and kills it
+      SandboxCase.Sandbox.kill_orphans(test_pid)
+
+      Process.sleep(10)
+      refute Process.alive?(orphan)
     end
 
-    test "drain_orphans returns :ok immediately when no orphans" do
-      assert :ok = SandboxCase.Sandbox.drain_orphans(self(), 100)
+    test "kill_orphans is a no-op when no orphans" do
+      assert :ok = SandboxCase.Sandbox.kill_orphans(self())
     end
   end
 

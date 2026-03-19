@@ -78,11 +78,11 @@ defmodule SandboxCase.Sandbox do
   end
 
   @doc """
-  Per-test checkin. Waits for orphaned processes, then checks in all adapters.
+  Per-test checkin. Kills orphaned processes, then checks in all adapters.
   Accepts the list returned by `checkout/1`.
   """
   def checkin(tokens) when is_list(tokens) do
-    drain_orphans(self())
+    kill_orphans(self())
 
     for {adapter, token} <- tokens do
       adapter.checkin(token)
@@ -91,38 +91,30 @@ defmodule SandboxCase.Sandbox do
     :ok
   end
 
-  @orphan_timeout 5_000
-  @orphan_poll_interval 50
-
   @doc """
-  Wait for processes that have `owner` in their `$callers` chain to exit.
-  Prevents sandbox checkin from pulling the rug out from under async work.
+  Find processes that have `owner` in their `$callers` chain, warn, and kill them.
   """
-  def drain_orphans(owner, timeout \\ @orphan_timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_drain(owner, deadline)
-  end
-
-  defp do_drain(owner, deadline) do
+  def kill_orphans(owner) do
     orphans = find_orphans(owner)
 
-    if orphans == [] do
-      :ok
-    else
-      if System.monotonic_time(:millisecond) >= deadline do
-        pids = Enum.map(orphans, &inspect/1) |> Enum.join(", ")
+    if orphans != [] do
+      info =
+        Enum.map_join(orphans, "\n  ", fn pid ->
+          name = process_name(pid)
+          if name, do: "#{inspect(pid)} (#{name})", else: inspect(pid)
+        end)
 
-        IO.warn(
-          "SandboxCase: #{length(orphans)} process(es) still alive after timeout: #{pids}. " <>
-            "These may crash with DBConnection.OwnershipError."
-        )
+      IO.warn(
+        "SandboxCase: killing #{length(orphans)} orphaned process(es) that outlived the test:\n  #{info}"
+      )
 
-        :timeout
-      else
-        Process.sleep(@orphan_poll_interval)
-        do_drain(owner, deadline)
+      for pid <- orphans do
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
       end
     end
+
+    :ok
   end
 
   defp find_orphans(owner) do
@@ -147,6 +139,15 @@ defmodule SandboxCase.Sandbox do
     end
   catch
     _, _ -> false
+  end
+
+  defp process_name(pid) do
+    case :erlang.process_info(pid, :registered_name) do
+      {:registered_name, name} -> name
+      _ -> nil
+    end
+  catch
+    _, _ -> nil
   end
 
   @doc """
