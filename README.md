@@ -74,14 +74,71 @@ SandboxCase.Sandbox.ecto_metadata(context.sandbox_tokens)
 
 ## Custom adapters
 
-Implement `SandboxCase.Sandbox.Adapter`:
+Implement `SandboxCase.Sandbox.Adapter` to add isolation for any shared state.
+
+```elixir
+defmodule MyApp.RedisSandbox do
+  @behaviour SandboxCase.Sandbox.Adapter
+
+  # Is the dep available? Return false to skip this adapter entirely.
+  @impl true
+  def available?, do: Code.ensure_loaded?(Redix)
+
+  # One-time setup — called from test_helper.exs via SandboxCase.Sandbox.setup().
+  # Use this to start pools, create isolation resources, etc.
+  @impl true
+  def setup(config) do
+    pool_size = config[:pool_size] || 4
+    # ... start a pool of Redis connections
+    :ok
+  end
+
+  # Per-test checkout — called in each test's setup.
+  # Return an opaque token that will be passed to checkin/1.
+  @impl true
+  def checkout(_config) do
+    # ... claim an isolated Redis DB, flush it
+    %{db: db_number}
+  end
+
+  # Per-test checkin — called in on_exit.
+  @impl true
+  def checkin(nil), do: :ok
+  def checkin(%{db: db}) do
+    # ... release the Redis DB back to the pool
+    :ok
+  end
+
+  # Optional: plug modules to register in the endpoint.
+  # Omit this callback if your adapter doesn't need a plug.
+  @impl true
+  def plugs, do: []
+
+  # Optional: on_mount modules to register in LiveViews.
+  # Omit this callback if your adapter doesn't need a hook.
+  @impl true
+  def hooks, do: []
+end
+```
+
+Register it in config:
 
 ```elixir
 config :sandbox_case,
   sandbox: [
+    ecto: true,
     {MyApp.RedisSandbox, pool_size: 4}
   ]
 ```
+
+The adapter lifecycle:
+
+1. `available?/0` — checked at compile time (for plugs/hooks) and runtime (for setup/checkout). Return `false` to skip.
+2. `setup/1` — called once from `SandboxCase.Sandbox.setup()` in test_helper.
+3. `checkout/1` — called per test. Returns a token.
+4. `checkin/1` — called in `on_exit` with the token from checkout.
+5. `plugs/0` — (optional) modules emitted by `sandbox_plugs()`.
+6. `hooks/0` — (optional) modules emitted by `sandbox_on_mount()`.
 
 ## License
 
