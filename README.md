@@ -2,6 +2,21 @@
 
 Batteries-included test isolation for Elixir and Phoenix.
 
+## The problem
+
+Getting test isolation right in Elixir is surprisingly fiddly. Ecto has its SQL Sandbox, but everything else — caches, feature flags, mocks, GenServers — is shared global state that leaks between tests. The more your app uses these, the worse it gets:
+
+- **Caches** (Cachex, ConCache) retain data between tests. A test that writes to a cache poisons every test that runs after it.
+- **Feature flags** (FunWithFlags) are global. Enabling a flag in one test enables it everywhere.
+- **Mocks** (Mimic, Mox) need explicit `allow` or `$callers` wiring to reach spawned processes — LiveViews, GenServers, async tasks.
+- **Async tests** make all of this harder. Every process in the call chain needs to participate in the sandbox, or you get `DBConnection.OwnershipError` and mysterious "cannot find ownership process" crashes.
+
+The common workaround is giving up on `async: true` and running everything synchronously. This is safe but slow, and doesn't actually fix the cache/flag leakage — it just makes it less likely to bite you.
+
+A better default: **no shared state survives between tests**. Each test gets its own database transaction, its own cache instance, its own feature flag store, its own mock context. SandboxCase sets this up with one config and one line in test_helper.
+
+## How it works
+
 One config, one setup call, zero boilerplate. Built-in adapters for Ecto, Cachex, FunWithFlags, Mimic, and Mox — each activated only if the dep is loaded.
 
 All macros expand at compile time. Outside `MIX_ENV=test`, `sandbox_plugs` and `sandbox_on_mount` emit nothing, and `socket_with_sandbox` emits a plain `socket` call. No runtime checks, no dead branches, no production dependencies on test libraries.
