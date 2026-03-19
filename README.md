@@ -1,19 +1,20 @@
-# PhoenixTestOnly
+# SandboxCase
 
-Test sandbox orchestration for Phoenix apps. One config, one setup call, zero boilerplate.
+Batteries-included test isolation for Elixir and Phoenix.
+
+One config, one setup call, zero boilerplate. Built-in adapters for Ecto, Cachex, FunWithFlags, Mimic, and Mox — each activated only if the dep is loaded.
 
 ## Installation
 
 ```elixir
-# mix.exs — include in all envs (macros need to run at compile time)
-{:phoenix_test_only, "~> 0.4"}
+{:sandbox_case, "~> 0.1"}
 ```
 
 ## Configuration
 
 ```elixir
 # config/test.exs
-config :phoenix_test_only,
+config :sandbox_case,
   otp_app: :my_app,
   mox_mocks: [MyApp.MockWeather],
   sandbox: [
@@ -25,13 +26,11 @@ config :phoenix_test_only,
   ]
 ```
 
-Each adapter is only activated if its dep is loaded. Custom adapters can implement `PhoenixTestOnly.Sandbox.Adapter`.
-
 ## Setup
 
 ```elixir
 # test/test_helper.exs
-PhoenixTestOnly.Sandbox.setup()
+SandboxCase.Sandbox.setup()
 ExUnit.start()
 ```
 
@@ -39,7 +38,7 @@ ExUnit.start()
 
 ```elixir
 # lib/your_app_web/endpoint.ex
-import PhoenixTestOnly
+import SandboxCase
 sandbox_plugs()
 
 socket "/live", Phoenix.LiveView.Socket,
@@ -51,35 +50,36 @@ socket "/live", Phoenix.LiveView.Socket,
 def live_view do
   quote do
     use Phoenix.LiveView
-    import PhoenixTestOnly
+    import SandboxCase
     sandbox_on_mount()
   end
 end
 ```
 
-The macros read your sandbox config at compile time and emit the right `plug`/`on_mount` calls. Outside test env, they emit nothing.
+Outside test env, both macros emit nothing.
 
 ## Test modules
 
 ```elixir
-use PhoenixTestOnly.Sandbox.Case
+use SandboxCase.Sandbox.Case
 ```
 
 Checks out all sandboxes in `setup`, checks them back in via `on_exit`. Ecto metadata for browser sessions:
 
 ```elixir
-PhoenixTestOnly.Sandbox.ecto_metadata(context.sandbox_tokens)
+SandboxCase.Sandbox.ecto_metadata(context.sandbox_tokens)
 ```
 
-## What's included
+## Custom adapters
 
-**Adapters** for Ecto, Cachex, FunWithFlags, Mimic, and Mox — each handles setup and per-test checkout/checkin.
+Implement `SandboxCase.Sandbox.Adapter`:
 
-**Sandbox Plug** (`PhoenixTestOnly.Sandbox.Plug`) — propagates Ecto sandbox, Mimic/Mox stubs, Cachex sandbox, and FunWithFlags sandbox to HTTP request processes.
-
-**Sandbox Hook** (`PhoenixTestOnly.Sandbox.Hook`) — same propagation for LiveView WebSocket processes. Uses `$callers` for Ecto instead of `allow/3` to avoid deadlocks with Cachex Courier workers.
-
-**Compile-time macros** — `sandbox_plugs()`, `sandbox_on_mount()`, `plug_if_test`, `on_mount_if_test`.
+```elixir
+config :sandbox_case,
+  sandbox: [
+    {MyApp.RedisSandbox, pool_size: 4}
+  ]
+```
 
 ## License
 

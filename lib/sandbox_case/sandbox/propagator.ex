@@ -1,4 +1,4 @@
-defmodule PhoenixTestOnly.Sandbox.Propagator do
+defmodule SandboxCase.Sandbox.Propagator do
   @moduledoc false
   # Shared logic for propagating test sandbox state (Ecto, Mimic, Mox,
   # Cachex, FunWithFlags) from a test owner process to a child process.
@@ -44,7 +44,7 @@ defmodule PhoenixTestOnly.Sandbox.Propagator do
 
     if Code.ensure_loaded?(mox) do
       mocks =
-        Application.get_env(:phoenix_test_only, :mox_mocks, []) ++
+        Application.get_env(:sandbox_case, :mox_mocks, []) ++
           Application.get_env(:wallabidi, :mox_mocks, [])
 
       for mod <- Enum.uniq(mocks) do

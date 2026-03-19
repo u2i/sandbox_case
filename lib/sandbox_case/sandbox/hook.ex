@@ -1,5 +1,5 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
-  defmodule PhoenixTestOnly.Sandbox.Hook do
+  defmodule SandboxCase.Sandbox.Hook do
     @moduledoc """
     LiveView on_mount hook that propagates test sandbox state from the
     test owner process to WebSocket-connected LiveView processes.
@@ -22,7 +22,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       with ua when is_binary(ua) <- get_connect_info(socket, :user_agent),
            true <- Code.ensure_loaded?(Phoenix.Ecto.SQL.Sandbox),
            %{owner: owner} <- Phoenix.Ecto.SQL.Sandbox.decode_metadata(ua) do
-        PhoenixTestOnly.Sandbox.Propagator.propagate(owner)
+        SandboxCase.Sandbox.Propagator.propagate(owner)
       end
     end
   end

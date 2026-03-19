@@ -1,4 +1,4 @@
-defmodule PhoenixTestOnly.Sandbox do
+defmodule SandboxCase.Sandbox do
   @moduledoc """
   Orchestrates test sandbox setup and per-test checkout/checkin.
 
@@ -6,14 +6,14 @@ defmodule PhoenixTestOnly.Sandbox do
 
   Call once in `test/test_helper.exs`:
 
-      PhoenixTestOnly.Sandbox.setup()
+      SandboxCase.Sandbox.setup()
 
   This reads config and runs each adapter's `setup/1`.
 
   ## Configuration
 
       # config/test.exs
-      config :phoenix_test_only,
+      config :sandbox_case,
         otp_app: :my_app,
         sandbox: [
           ecto: true,                              # auto-discovers repos from otp_app
@@ -25,7 +25,7 @@ defmodule PhoenixTestOnly.Sandbox do
 
   Each key maps to a built-in adapter. You can also pass custom adapters:
 
-      config :phoenix_test_only,
+      config :sandbox_case,
         sandbox: [
           {MyApp.CustomSandbox, [some: :config]}
         ]
@@ -34,20 +34,20 @@ defmodule PhoenixTestOnly.Sandbox do
 
   Use the case template:
 
-      use PhoenixTestOnly.Sandbox.Case
+      use SandboxCase.Sandbox.Case
 
   Or call manually:
 
-      tokens = PhoenixTestOnly.Sandbox.checkout()
-      on_exit(fn -> PhoenixTestOnly.Sandbox.checkin(tokens) end)
+      tokens = SandboxCase.Sandbox.checkout()
+      on_exit(fn -> SandboxCase.Sandbox.checkin(tokens) end)
   """
 
   @builtin_adapters %{
-    ecto: PhoenixTestOnly.Sandbox.Ecto,
-    cachex: PhoenixTestOnly.Sandbox.Cachex,
-    fun_with_flags: PhoenixTestOnly.Sandbox.FunWithFlags,
-    mimic: PhoenixTestOnly.Sandbox.Mimic,
-    mox: PhoenixTestOnly.Sandbox.Mox
+    ecto: SandboxCase.Sandbox.Ecto,
+    cachex: SandboxCase.Sandbox.Cachex,
+    fun_with_flags: SandboxCase.Sandbox.FunWithFlags,
+    mimic: SandboxCase.Sandbox.Mimic,
+    mox: SandboxCase.Sandbox.Mox
   }
 
   @doc """
@@ -87,7 +87,7 @@ defmodule PhoenixTestOnly.Sandbox do
   Useful for passing to browser session start.
   """
   def ecto_metadata(tokens) when is_list(tokens) do
-    case List.keyfind(tokens, PhoenixTestOnly.Sandbox.Ecto, 0) do
+    case List.keyfind(tokens, SandboxCase.Sandbox.Ecto, 0) do
       {_, %{metadata: metadata}} -> metadata
       _ -> nil
     end
@@ -95,7 +95,7 @@ defmodule PhoenixTestOnly.Sandbox do
 
   @doc """
   Collects all plug modules declared by available adapters.
-  Used by `PhoenixTestOnly.sandbox_plugs/0` at compile time.
+  Used by `SandboxCase.sandbox_plugs/0` at compile time.
   """
   def collect_plugs do
     resolved_adapters([])
@@ -107,7 +107,7 @@ defmodule PhoenixTestOnly.Sandbox do
 
   @doc """
   Collects all on_mount modules declared by available adapters.
-  Used by `PhoenixTestOnly.sandbox_on_mount/0` at compile time.
+  Used by `SandboxCase.sandbox_on_mount/0` at compile time.
   """
   def collect_hooks do
     resolved_adapters([])
@@ -118,8 +118,8 @@ defmodule PhoenixTestOnly.Sandbox do
   end
 
   defp resolved_adapters(opts) do
-    sandbox_config = opts[:sandbox] || Application.get_env(:phoenix_test_only, :sandbox, [])
-    otp_app = opts[:otp_app] || Application.get_env(:phoenix_test_only, :otp_app)
+    sandbox_config = opts[:sandbox] || Application.get_env(:sandbox_case, :sandbox, [])
+    otp_app = opts[:otp_app] || Application.get_env(:sandbox_case, :otp_app)
 
     sandbox_config
     |> Enum.map(fn entry -> resolve_adapter(entry, otp_app) end)

@@ -1,5 +1,5 @@
 if Code.ensure_loaded?(Plug) do
-  defmodule PhoenixTestOnly.Sandbox.Plug do
+  defmodule SandboxCase.Sandbox.Plug do
     @moduledoc """
     Plug that propagates test sandbox state from the test owner process
     to HTTP request processes (controllers, channels).
@@ -20,7 +20,7 @@ if Code.ensure_loaded?(Plug) do
       if Code.ensure_loaded?(Phoenix.Ecto.SQL.Sandbox) do
         case Phoenix.Ecto.SQL.Sandbox.decode_metadata(ua) do
           %{owner: owner} ->
-            PhoenixTestOnly.Sandbox.Propagator.propagate(owner)
+            SandboxCase.Sandbox.Propagator.propagate(owner)
 
           _ ->
             :ok

@@ -1,23 +1,23 @@
-defmodule PhoenixTestOnly.Sandbox.Case do
+defmodule SandboxCase.Sandbox.Case do
   @moduledoc """
   ExUnit case template that checks out all configured sandboxes
   and checks them back in on exit.
 
-      use PhoenixTestOnly.Sandbox.Case
+      use SandboxCase.Sandbox.Case
 
   Adds `%{sandbox_tokens: tokens}` to the test context. The Ecto
   metadata (for browser test sessions) is available via:
 
-      PhoenixTestOnly.Sandbox.ecto_metadata(context.sandbox_tokens)
+      SandboxCase.Sandbox.ecto_metadata(context.sandbox_tokens)
   """
 
   use ExUnit.CaseTemplate
 
   setup context do
-    tokens = PhoenixTestOnly.Sandbox.checkout(async?: context[:async] || false)
+    tokens = SandboxCase.Sandbox.checkout(async?: context[:async] || false)
 
     on_exit(fn ->
-      PhoenixTestOnly.Sandbox.checkin(tokens)
+      SandboxCase.Sandbox.checkin(tokens)
     end)
 
     %{sandbox_tokens: tokens}

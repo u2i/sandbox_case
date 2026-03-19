@@ -1,4 +1,4 @@
-defmodule PhoenixTestOnly.Sandbox.Adapter do
+defmodule SandboxCase.Sandbox.Adapter do
   @moduledoc """
   Behaviour for sandbox adapters.
 

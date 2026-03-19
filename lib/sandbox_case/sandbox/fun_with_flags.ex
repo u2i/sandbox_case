@@ -1,6 +1,6 @@
-defmodule PhoenixTestOnly.Sandbox.FunWithFlags do
+defmodule SandboxCase.Sandbox.FunWithFlags do
   @moduledoc false
-  @behaviour PhoenixTestOnly.Sandbox.Adapter
+  @behaviour SandboxCase.Sandbox.Adapter
 
   @impl true
   def available? do

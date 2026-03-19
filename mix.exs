@@ -1,17 +1,17 @@
-defmodule PhoenixTestOnly.MixProject do
+defmodule SandboxCase.MixProject do
   use Mix.Project
 
-  @source_url "https://github.com/pinetops/phoenix_test_only"
-  @version "0.4.0"
+  @source_url "https://github.com/pinetops/sandbox_case"
+  @version "0.1.0"
 
   def project do
     [
-      app: :phoenix_test_only,
+      app: :sandbox_case,
       version: @version,
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       package: package(),
-      description: "Test sandbox orchestration and compile-time conditional plug/on_mount.",
+      description: "Batteries-included test isolation for Elixir and Phoenix.",
       deps: deps(),
       docs: docs()
     ]

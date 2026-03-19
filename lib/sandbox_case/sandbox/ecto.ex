@@ -1,6 +1,6 @@
-defmodule PhoenixTestOnly.Sandbox.Ecto do
+defmodule SandboxCase.Sandbox.Ecto do
   @moduledoc false
-  @behaviour PhoenixTestOnly.Sandbox.Adapter
+  @behaviour SandboxCase.Sandbox.Adapter
 
   @impl true
   def available? do
@@ -41,14 +41,14 @@ defmodule PhoenixTestOnly.Sandbox.Ecto do
   @impl true
   def plugs do
     plug = Phoenix.Ecto.SQL.Sandbox
-    sandbox_plug = PhoenixTestOnly.Sandbox.Plug
+    sandbox_plug = SandboxCase.Sandbox.Plug
 
     Enum.filter([plug, sandbox_plug], &Code.ensure_loaded?/1)
   end
 
   @impl true
   def hooks do
-    hook = PhoenixTestOnly.Sandbox.Hook
+    hook = SandboxCase.Sandbox.Hook
 
     if Code.ensure_loaded?(hook), do: [hook], else: []
   end

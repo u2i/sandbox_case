@@ -1,6 +1,6 @@
-defmodule PhoenixTestOnly.Sandbox.Cachex do
+defmodule SandboxCase.Sandbox.Cachex do
   @moduledoc false
-  @behaviour PhoenixTestOnly.Sandbox.Adapter
+  @behaviour SandboxCase.Sandbox.Adapter
 
   @impl true
   def available? do

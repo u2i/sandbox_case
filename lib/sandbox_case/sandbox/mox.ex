@@ -1,6 +1,6 @@
-defmodule PhoenixTestOnly.Sandbox.Mox do
+defmodule SandboxCase.Sandbox.Mox do
   @moduledoc false
-  @behaviour PhoenixTestOnly.Sandbox.Adapter
+  @behaviour SandboxCase.Sandbox.Adapter
 
   @impl true
   def available? do
