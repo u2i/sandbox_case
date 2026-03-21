@@ -1,11 +1,8 @@
 defmodule SandboxCase.Sandbox.CachexPatcher do
   @moduledoc false
   # Patches Cachex.Services.Overseer.retrieve/1 at runtime to check the
-  # process dictionary for sandbox overrides. This allows sandbox_case
-  # to work with vanilla Cachex (no fork required).
-  #
-  # Only patches if retrieve/1 matches the expected implementation.
-  # If Cachex changes the function, we warn instead of silently breaking.
+  # process dictionary (and $callers) for sandbox overrides. This allows
+  # sandbox_case to work with vanilla Cachex (no fork required).
 
   @target Cachex.Services.Overseer
 
@@ -18,75 +15,37 @@ defmodule SandboxCase.Sandbox.CachexPatcher do
       already_patched?() ->
         :already_patched
 
-      not expected_shape?() ->
+      expected_vanilla?() ->
+        do_patch()
+
+      true ->
         require Logger
 
         Logger.warning(
           "SandboxCase: Cachex.Services.Overseer doesn't match expected shape. " <>
-            "Cachex sandbox patching skipped — cache isolation may not work. " <>
-            "Consider using the pinetops/cachex fork or updating sandbox_case."
+            "Cachex sandbox patching skipped. " <>
+            "Expected vanilla Cachex ~> 4.1 or an already-patched module."
         )
 
         :unexpected_shape
-
-      true ->
-        do_patch()
     end
   end
 
-  # Check if retrieve/1 already has our sandbox logic
+  # Our patch includes find_sandbox_in_callers — check for it
   defp already_patched? do
-    Process.put({:cachex_sandbox, :__patch_test__}, :__patched__)
-
-    result =
-      try do
-        # If patched, retrieve(:__patch_test__) resolves to :__patched__
-        # which won't be in the ETS table, so returns nil.
-        # If unpatched, it also returns nil but via direct ETS lookup.
-        # We can't distinguish — instead check the beam for our marker.
-        source = get_beam_source()
-        source != nil and String.contains?(source, "cachex_sandbox")
-      rescue
-        _ -> false
-      end
-
-    Process.delete({:cachex_sandbox, :__patch_test__})
-    result
+    source = get_beam_source()
+    source != nil and String.contains?(source, "find_sandbox_in_callers")
   end
 
-  # Verify the module has the functions we expect to replace
-  defp expected_shape? do
+  # Vanilla Cachex has retrieve/1 with a direct ETS lookup, no sandbox logic
+  defp expected_vanilla? do
     exports = @target.__info__(:functions)
-
-    expected = [
-      {:retrieve, 1},
-      {:get, 1},
-      {:known?, 1},
-      {:register, 2},
-      {:start_link, 0},
-      {:started?, 0},
-      {:transaction, 2},
-      {:unregister, 1},
-      {:update, 2},
-      {:with, 2}
-    ]
-
-    Enum.all?(expected, &(&1 in exports)) and verify_retrieve_source()
+    {:retrieve, 1} in exports and not has_sandbox_logic?()
   end
 
-  # Verify retrieve/1 does what we expect: an ETS lookup on the name directly
-  defp verify_retrieve_source do
-    case get_beam_source() do
-      nil ->
-        # No source available — check by behaviour instead
-        # retrieve/1 should return nil for unknown names
-        @target.retrieve(:__nonexistent_cache_name__) == nil
-
-      source ->
-        # The vanilla retrieve/1 should contain :ets.lookup and @table_name
-        String.contains?(source, "ets.lookup") and
-          String.contains?(source, "cachex_overseer_table")
-    end
+  defp has_sandbox_logic? do
+    source = get_beam_source()
+    source != nil and String.contains?(source, "cachex_sandbox")
   end
 
   defp get_beam_source do
@@ -159,14 +118,37 @@ defmodule SandboxCase.Sandbox.CachexPatcher do
       def register(name, cache() = cache) when is_atom(name),
         do: :ets.insert(@table_name, {name, cache})
 
-      # PATCHED: check process dictionary for sandbox override
       def retrieve(name) do
-        resolved = Process.get({:cachex_sandbox, name}, name)
+        resolved = find_sandbox(name)
 
         case :ets.lookup(@table_name, resolved) do
           [{^resolved, state}] -> state
           _other -> nil
         end
+      end
+
+      defp find_sandbox(name) do
+        case Process.get({:cachex_sandbox, name}) do
+          nil -> find_sandbox_in_callers(name, Process.get(:"$callers") || [])
+          instance -> instance
+        end
+      end
+
+      defp find_sandbox_in_callers(name, []), do: name
+
+      defp find_sandbox_in_callers(name, [pid | rest]) do
+        case :erlang.process_info(pid, :dictionary) do
+          {:dictionary, dict} ->
+            case List.keyfind(dict, {:cachex_sandbox, name}, 0) do
+              {{:cachex_sandbox, ^name}, instance} -> instance
+              _ -> find_sandbox_in_callers(name, rest)
+            end
+
+          _ ->
+            find_sandbox_in_callers(name, rest)
+        end
+      catch
+        _, _ -> find_sandbox_in_callers(name, rest)
       end
 
       def started?,
