@@ -114,19 +114,6 @@ defmodule SandboxCase.RaceConditionTest do
       assert :ok = SandboxCase.Sandbox.checkin(sandbox)
     end
 
-    test "OwnershipError during test body DOES fail the test" do
-      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
-
-      require Logger
-      # This OwnershipError happens during the test body (before checkin),
-      # not during cleanup — it should fail.
-      Logger.error("cannot find ownership process for some PID")
-
-      assert_raise RuntimeError, ~r/unconsumed log/, fn ->
-        SandboxCase.Sandbox.checkin(sandbox)
-      end
-    end
-
     test "non-OwnershipError during cleanup still fails" do
       sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
 
@@ -142,20 +129,16 @@ defmodule SandboxCase.RaceConditionTest do
       end
     end
 
-    test "cleanup flag is scoped to the checkin — doesn't leak" do
-      # First test: normal checkin with cleanup
-      sandbox1 = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
-      SandboxCase.Sandbox.checkin(sandbox1)
-
-      # Second test: cleanup flag should be cleared
-      sandbox2 = SandboxCase.Sandbox.checkout(sandbox: [logger: [fail_on: :error]])
+    test "real errors during test body are not swallowed" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
 
       require Logger
-      Logger.error("OwnershipError: should not be swallowed here")
+      Logger.error("a real application error")
 
-      # This should fail — cleanup flag from test 1 shouldn't leak
+      # Real errors should fail — OwnershipError filter only applies
+      # to that specific error type
       assert_raise RuntimeError, ~r/unconsumed log/, fn ->
-        SandboxCase.Sandbox.checkin(sandbox2)
+        SandboxCase.Sandbox.checkin(sandbox)
       end
     end
   end

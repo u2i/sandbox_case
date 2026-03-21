@@ -222,8 +222,7 @@ defmodule SandboxCase.Sandbox.Logger do
       nil -> :ok
       ref ->
         message = format_message(msg)
-        during_cleanup = Process.get(:sandbox_case_cleanup, false)
-        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta, during_cleanup: during_cleanup}})
+        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta}})
     end
   catch
     _, _ -> :ok
@@ -259,12 +258,13 @@ defmodule SandboxCase.Sandbox.Logger do
     _, _ -> find_log_ref_in_callers(rest)
   end
 
-  defp ownership_error_during_cleanup?(%{during_cleanup: true, message: message}) do
+  # OwnershipErrors are sandbox artifacts — they can't happen in production
+  # (no sandbox). If a test produces one, the DB operation itself would
+  # have raised, failing the test directly. The log entry is just noise.
+  defp ownership_error_during_cleanup?(%{message: message}) do
     String.contains?(message, "OwnershipError") or
       String.contains?(message, "cannot find ownership process")
   end
-
-  defp ownership_error_during_cleanup?(_), do: false
 
   defp ensure_handler_installed do
     unless @handler_id in :logger.get_handler_ids() do
@@ -275,7 +275,18 @@ defmodule SandboxCase.Sandbox.Logger do
   end
 
   defp format_message({:string, msg}), do: IO.chardata_to_string(msg)
-  defp format_message({:report, report}), do: inspect(report)
+
+  defp format_message({:report, report}) do
+    # Use Logger's default formatter to produce readable output,
+    # matching what appears in the console
+    case :logger.format_otp_report(report) do
+      formatted when is_list(formatted) -> IO.chardata_to_string(formatted)
+      _ -> inspect(report)
+    end
+  rescue
+    _ -> inspect(report)
+  end
+
   defp format_message(msg) when is_binary(msg), do: msg
   defp format_message(msg), do: inspect(msg)
 end
