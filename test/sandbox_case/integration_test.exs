@@ -254,6 +254,43 @@ defmodule SandboxCase.IntegrationTest do
     test "kill_orphans is a no-op when no orphans" do
       assert :ok = SandboxCase.Sandbox.kill_orphans(self())
     end
+
+    test "await_orphans waits for natural completion" do
+      test_pid = self()
+      {:ok, agent} = Agent.start_link(fn -> false end)
+
+      {:ok, _} =
+        Task.start(fn ->
+          Process.put(:"$callers", [test_pid])
+          Process.sleep(100)
+          Agent.update(agent, fn _ -> true end)
+        end)
+
+      SandboxCase.Sandbox.await_orphans(test_pid)
+
+      # Task finished naturally — agent was updated
+      assert Agent.get(agent, & &1) == true
+      Agent.stop(agent)
+    end
+
+    test "await_orphans kills survivors after timeout" do
+      test_pid = self()
+
+      {:ok, orphan} =
+        Task.start(fn ->
+          Process.put(:"$callers", [test_pid])
+          Process.sleep(:infinity)
+        end)
+
+      Process.sleep(10)
+      assert Process.alive?(orphan)
+
+      # Short timeout — task won't finish in 50ms
+      SandboxCase.Sandbox.await_orphans(test_pid, 50)
+
+      Process.sleep(10)
+      refute Process.alive?(orphan)
+    end
   end
 
   defp build_conn_with_sandbox(sandbox) do

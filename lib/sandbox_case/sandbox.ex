@@ -89,10 +89,11 @@ defmodule SandboxCase.Sandbox do
   end
 
   @doc """
-  Per-test checkin. Kills orphaned processes, then checks in all adapters.
+  Per-test checkin. Waits for orphaned processes to finish naturally,
+  then checks in all adapters (including log assertion).
   """
   def checkin(%{owner: owner, tokens: tokens}) do
-    kill_orphans(owner)
+    await_orphans(owner)
 
     for {adapter, token} <- tokens do
       adapter.checkin(token)
@@ -101,9 +102,48 @@ defmodule SandboxCase.Sandbox do
     :ok
   end
 
+  @orphan_timeout 5_000
 
   @doc """
-  Find processes that have `owner` in their `$callers` chain, warn, and kill them.
+  Wait for orphaned processes to finish naturally, then kill any
+  that didn't complete within the timeout.
+
+  This ensures async tasks (start_async, Task.start, etc.) complete
+  their DB queries while the sandbox is still active, and their error
+  logs are captured before checkin checks for unconsumed errors.
+  """
+  def await_orphans(owner, timeout \\ @orphan_timeout) do
+    orphans = find_orphans(owner)
+
+    if orphans != [] do
+      # Monitor all orphans
+      refs =
+        Enum.map(orphans, fn pid ->
+          {pid, Process.monitor(pid)}
+        end)
+
+      deadline = System.monotonic_time(:millisecond) + timeout
+
+      # Wait for each to exit
+      for {_pid, ref} <- refs do
+        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+        receive do
+          {:DOWN, ^ref, :process, _, _} -> :ok
+        after
+          remaining -> Process.demonitor(ref, [:flush])
+        end
+      end
+
+      # Kill any survivors
+      kill_orphans(owner)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Find and kill orphaned processes immediately (no waiting).
   """
   def kill_orphans(owner) do
     orphans = find_orphans(owner)
