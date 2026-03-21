@@ -130,11 +130,15 @@ defmodule SandboxCase.Sandbox do
   Does NOT kill survivors — call `kill_orphans/1` separately.
   """
   def await_orphans(owner, timeout \\ @orphan_timeout) do
-    orphans = find_orphans(owner)
+    # Wait for unregistered processes with test pid in $callers.
+    # This includes LiveView channels (supervised but unregistered)
+    # and Tasks. Excludes system processes like Cachex locksmith
+    # (registered, never die).
+    children = find_test_children(owner)
 
-    if orphans != [] do
+    if children != [] do
       refs =
-        Enum.map(orphans, fn pid ->
+        Enum.map(children, fn pid ->
           {pid, Process.monitor(pid)}
         end)
 
@@ -152,6 +156,44 @@ defmodule SandboxCase.Sandbox do
     end
 
     :ok
+  end
+
+  # Unregistered processes with the test pid in $callers.
+  # Registered processes (Cachex locksmith, Ecto pools, etc.) are
+  # long-lived system processes that happen to get $callers from
+  # test operations — we don't wait for them.
+  defp find_test_children(owner) do
+    self_pid = self()
+
+    Process.list()
+    |> Enum.filter(fn pid ->
+      pid != self_pid and pid != owner and
+        not registered?(pid) and has_caller?(pid, owner)
+    end)
+  end
+
+  defp has_caller?(pid, owner) do
+    case :erlang.process_info(pid, :dictionary) do
+      {:dictionary, dict} ->
+        case List.keyfind(dict, :"$callers", 0) do
+          {:"$callers", callers} -> owner in callers
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  catch
+    _, _ -> false
+  end
+
+  defp registered?(pid) do
+    case :erlang.process_info(pid, :registered_name) do
+      {:registered_name, _} -> true
+      _ -> false
+    end
+  catch
+    _, _ -> false
   end
 
   @doc """
