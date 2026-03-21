@@ -273,7 +273,7 @@ defmodule SandboxCase.IntegrationTest do
       Agent.stop(agent)
     end
 
-    test "await_orphans kills survivors after timeout" do
+    test "await_orphans waits then kill_orphans cleans up survivors" do
       test_pid = self()
 
       {:ok, orphan} =
@@ -288,6 +288,11 @@ defmodule SandboxCase.IntegrationTest do
       # Short timeout — task won't finish in 50ms
       SandboxCase.Sandbox.await_orphans(test_pid, 50)
 
+      # Still alive — await doesn't kill
+      assert Process.alive?(orphan)
+
+      # kill_orphans finishes the job
+      SandboxCase.Sandbox.kill_orphans(test_pid)
       Process.sleep(10)
       refute Process.alive?(orphan)
     end

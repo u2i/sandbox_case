@@ -89,8 +89,10 @@ defmodule SandboxCase.Sandbox do
   end
 
   @doc """
-  Per-test checkin. Waits for orphaned processes to finish naturally,
-  then checks in all adapters (including log assertion).
+  Per-test checkin. Order matters:
+  1. Wait for orphans to finish naturally (DB queries complete cleanly)
+  2. Rollback sandbox (invalidates transaction, in-flight queries fail with rollback)
+  3. Kill remaining orphans (safe — transaction already rolled back)
   """
   def checkin(%{owner: owner, tokens: tokens}) do
     await_orphans(owner)
@@ -99,24 +101,21 @@ defmodule SandboxCase.Sandbox do
       adapter.checkin(token)
     end
 
+    kill_orphans(owner)
+
     :ok
   end
 
   @orphan_timeout 5_000
 
   @doc """
-  Wait for orphaned processes to finish naturally, then kill any
-  that didn't complete within the timeout.
-
-  This ensures async tasks (start_async, Task.start, etc.) complete
-  their DB queries while the sandbox is still active, and their error
-  logs are captured before checkin checks for unconsumed errors.
+  Wait for orphaned processes to finish naturally (up to timeout).
+  Does NOT kill survivors — call `kill_orphans/1` separately.
   """
   def await_orphans(owner, timeout \\ @orphan_timeout) do
     orphans = find_orphans(owner)
 
     if orphans != [] do
-      # Monitor all orphans
       refs =
         Enum.map(orphans, fn pid ->
           {pid, Process.monitor(pid)}
@@ -124,7 +123,6 @@ defmodule SandboxCase.Sandbox do
 
       deadline = System.monotonic_time(:millisecond) + timeout
 
-      # Wait for each to exit
       for {_pid, ref} <- refs do
         remaining = max(deadline - System.monotonic_time(:millisecond), 0)
 
@@ -134,9 +132,6 @@ defmodule SandboxCase.Sandbox do
           remaining -> Process.demonitor(ref, [:flush])
         end
       end
-
-      # Kill any survivors
-      kill_orphans(owner)
     end
 
     :ok
