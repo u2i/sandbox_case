@@ -31,6 +31,7 @@ defmodule SandboxCase.MixProject do
       {:phoenix_live_view, "~> 1.0", optional: true},
       {:phoenix_ecto, "~> 4.0", optional: true},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false},
+      {:sandbox_shim, github: "pinetops/sandbox_shim", only: :test},
       # Test deps — full Phoenix app for integration tests
       {:jason, "~> 1.0", only: :test},
       {:ecto_sql, "~> 3.12", only: :test},

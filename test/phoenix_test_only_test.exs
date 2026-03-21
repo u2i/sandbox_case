@@ -1,12 +1,6 @@
 defmodule SandboxCaseTest do
   use ExUnit.Case, async: true
 
-  describe "test_env?/0" do
-    test "returns true when Mix is available and env is :test" do
-      assert SandboxCase.test_env?()
-    end
-  end
-
   describe "Sandbox" do
     test "setup with no config is a no-op" do
       assert :ok = SandboxCase.Sandbox.setup(sandbox: [])

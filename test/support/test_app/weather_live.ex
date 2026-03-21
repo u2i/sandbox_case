@@ -1,7 +1,7 @@
 defmodule SandboxCase.TestApp.WeatherLive do
   use Phoenix.LiveView
 
-  import SandboxCase
+  import SandboxShim
   sandbox_on_mount()
 
   def mount(_params, _session, socket) do
