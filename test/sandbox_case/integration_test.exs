@@ -129,7 +129,7 @@ defmodule SandboxCase.IntegrationTest do
 
       Logger.error("something broke")
 
-      assert_raise RuntimeError, ~r/1 log.*at error or above/, fn ->
+      assert_raise RuntimeError, ~r/1 unconsumed log.*at error or above/, fn ->
         SandboxCase.Sandbox.checkin(sandbox)
       end
     end
@@ -141,7 +141,7 @@ defmodule SandboxCase.IntegrationTest do
 
       Logger.warning("hmm")
 
-      assert_raise RuntimeError, ~r/1 log.*at warning or above/, fn ->
+      assert_raise RuntimeError, ~r/1 unconsumed log.*at warning or above/, fn ->
         SandboxCase.Sandbox.checkin(sandbox)
       end
     end
@@ -164,6 +164,71 @@ defmodule SandboxCase.IntegrationTest do
 
       logs = SandboxCase.Sandbox.Logger.get_logs(sandbox)
       assert Enum.any?(logs, &(&1.message =~ "from child"))
+    end
+
+    test "pop_log consumes a single entry", %{sandbox: sandbox} do
+      require Logger
+      Logger.error("first error")
+      Logger.error("second error")
+
+      assert SandboxCase.Sandbox.Logger.pop_log(sandbox, :error) =~ "first error"
+      assert SandboxCase.Sandbox.Logger.pop_log(sandbox, :error) =~ "second error"
+      refute SandboxCase.Sandbox.Logger.pop_log(sandbox, :error)
+    end
+
+    test "pop_log filters by level", %{sandbox: sandbox} do
+      require Logger
+      Logger.info("info msg")
+      Logger.error("error msg")
+
+      assert SandboxCase.Sandbox.Logger.pop_log(sandbox, :error) =~ "error msg"
+      # info is still there
+      assert SandboxCase.Sandbox.Logger.pop_log(sandbox, :info) =~ "info msg"
+    end
+
+    test "logs/2 pops all matching entries", %{sandbox: sandbox} do
+      require Logger
+      Logger.warning("warn one")
+      Logger.warning("warn two")
+      Logger.info("info msg")
+
+      result = SandboxCase.Sandbox.Logger.logs(sandbox, :warning)
+      assert result =~ "warn one"
+      assert result =~ "warn two"
+
+      # warnings consumed, info still there
+      assert SandboxCase.Sandbox.Logger.pop_log(sandbox, :info) =~ "info msg"
+      refute SandboxCase.Sandbox.Logger.pop_log(sandbox, :warning)
+    end
+
+    test "consumed errors don't fail checkin" do
+      require Logger
+
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [logger: [fail_on: :error]])
+
+      Logger.error("expected error")
+      # Consume it
+      SandboxCase.Sandbox.Logger.pop_log(sandbox, :error)
+
+      # Checkin should pass — the error was consumed
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
+    test "unconsumed errors fail checkin" do
+      require Logger
+
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [logger: [fail_on: :error]])
+
+      Logger.error("expected error")
+      Logger.error("unexpected error")
+
+      # Only consume one
+      SandboxCase.Sandbox.Logger.pop_log(sandbox, :error)
+
+      # Checkin fails — one unconsumed error remains
+      assert_raise RuntimeError, ~r/1 unconsumed log/, fn ->
+        SandboxCase.Sandbox.checkin(sandbox)
+      end
     end
   end
 

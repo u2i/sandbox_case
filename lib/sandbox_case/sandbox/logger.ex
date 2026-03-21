@@ -8,20 +8,31 @@ defmodule SandboxCase.Sandbox.Logger do
 
   ## Configuration
 
-      # Default — fail on :error logs
+      # Default — fail on unconsumed :error logs
       logger: true
 
-      # Stricter — fail on :warning and above
+      # Stricter — fail on unconsumed :warning and above
       logger: [fail_on: :warning]
 
       # Capture only, never fail
       logger: [fail_on: false]
 
-  ## Accessing captured logs
+  ## Pop-based assertions
 
-      logs = SandboxCase.Sandbox.Logger.get_logs(context.sandbox)
+  Reading logs consumes them. At checkin, only unconsumed logs above
+  the `fail_on` threshold trigger failure.
 
-      # Each entry: %{level: atom, message: binary, metadata: map}
+      # Pop the next log at a level (returns message string or nil)
+      assert pop_log(sandbox, :error) =~ "sync failed"
+
+      # Pop all logs at a level (returns joined string)
+      assert logs(sandbox, :warning) =~ "duplicate"
+
+      # Happy path — never read logs, any error fails at checkin
+      test "creates user", %{sandbox: sandbox} do
+        User.create!(attrs)
+        # checkin: no errors → passes
+      end
   """
   @behaviour SandboxCase.Sandbox.Adapter
 
@@ -77,7 +88,7 @@ defmodule SandboxCase.Sandbox.Logger do
       threshold = Map.get(@level_severity, fail_on, 4)
 
       failing =
-        get_logs_for_ref(ref)
+        get_entries(ref)
         |> Enum.filter(fn entry ->
           Map.get(@level_severity, entry.level, 0) >= threshold
         end)
@@ -85,7 +96,7 @@ defmodule SandboxCase.Sandbox.Logger do
       if failing != [] do
         messages = Enum.map_join(failing, "\n  ", &"[#{&1.level}] #{&1.message}")
         :ets.match_delete(@table, {ref, :_})
-        raise "Test produced #{length(failing)} log(s) at #{fail_on} or above:\n  #{messages}"
+        raise "Test produced #{length(failing)} unconsumed log(s) at #{fail_on} or above:\n  #{messages}"
       end
     end
 
@@ -96,25 +107,114 @@ defmodule SandboxCase.Sandbox.Logger do
   @impl true
   def propagate_keys(_config), do: [:sandbox_case_log_ref]
 
+  # --- Public API ---
+
   @doc """
-  Get all logs captured during the current test.
+  Pop the next log entry at or above `level`. Returns the message
+  string, or `nil` if no matching entry exists. Consumes the entry.
+
+      assert pop_log(sandbox, :error) =~ "something broke"
+      refute pop_log(sandbox, :error)  # no more errors
+  """
+  def pop_log(sandbox, level \\ :debug)
+
+  def pop_log(%{tokens: tokens}, level), do: pop_log(tokens, level)
+
+  def pop_log(tokens, level) when is_list(tokens) do
+    case find_token(tokens) do
+      nil -> nil
+      ref -> do_pop_log(ref, level)
+    end
+  end
+
+  @doc """
+  Pop all log entries at or above `level`. Returns the messages
+  joined with newlines as a string. Consumes the entries.
+
+      assert logs(sandbox, :error) =~ "failed"
+      assert logs(sandbox) =~ "some info message"
+  """
+  def logs(sandbox, level \\ :debug)
+
+  def logs(%{tokens: tokens}, level), do: logs(tokens, level)
+
+  def logs(tokens, level) when is_list(tokens) do
+    case find_token(tokens) do
+      nil -> ""
+      ref -> do_pop_all(ref, level)
+    end
+  end
+
+  @doc """
+  Get all logs without consuming them (non-destructive).
+  Returns a list of `%{level: atom, message: binary, metadata: map}`.
   """
   def get_logs(%{tokens: tokens}), do: get_logs(tokens)
 
   def get_logs(tokens) when is_list(tokens) do
-    case List.keyfind(tokens, __MODULE__, 0) do
-      {_, %{ref: ref}} -> get_logs_for_ref(ref)
-      _ -> []
+    case find_token(tokens) do
+      nil -> []
+      ref -> get_entries(ref)
     end
   end
 
-  defp get_logs_for_ref(ref) do
+  # --- Private helpers ---
+
+  defp do_pop_log(ref, level) do
+    threshold = Map.get(@level_severity, level, 0)
+
+    # Take all entries for this ref, find first match, re-insert the rest
+    all = :ets.take(@table, ref)
+
+    {match, rest} =
+      Enum.reduce(all, {nil, []}, fn {_ref, entry} = row, {found, acc} ->
+        if is_nil(found) and Map.get(@level_severity, entry.level, 0) >= threshold do
+          {entry, acc}
+        else
+          {found, [row | acc]}
+        end
+      end)
+
+    # Re-insert unconsumed entries
+    for row <- rest, do: :ets.insert(@table, row)
+
+    if match, do: "[#{match.level}] #{match.message}"
+  end
+
+  defp do_pop_all(ref, level) do
+    threshold = Map.get(@level_severity, level, 0)
+
+    all = :ets.take(@table, ref)
+
+    {matching, rest} =
+      Enum.split_with(all, fn {_ref, entry} ->
+        Map.get(@level_severity, entry.level, 0) >= threshold
+      end)
+
+    # Re-insert entries below the threshold
+    for row <- rest, do: :ets.insert(@table, row)
+
+    matching
+    |> Enum.map(fn {_ref, entry} -> "[#{entry.level}] #{entry.message}" end)
+    |> Enum.join("\n")
+  end
+
+  defp get_entries(ref) do
     @table
     |> :ets.lookup(ref)
     |> Enum.map(fn {_ref, entry} -> entry end)
   end
 
-  # :logger handler callback — must never raise or Erlang removes the handler
+  defp find_token(tokens) do
+    case List.keyfind(tokens, __MODULE__, 0) do
+      {_, %{ref: ref}} -> ref
+      _ -> nil
+    end
+  end
+
+  # --- :logger handler callback ---
+
+  # Must never raise or Erlang removes the handler
   @doc false
   def log(%{level: level, msg: msg, meta: meta}, _config) do
     case find_log_ref(meta) do
@@ -133,8 +233,6 @@ defmodule SandboxCase.Sandbox.Logger do
   @doc false
   def removing_handler(_config), do: :ok
 
-  # The handler runs inline in the calling process, so Process.get works
-  # directly. Fall back to walking $callers for child processes.
   defp find_log_ref(_meta) do
     case Process.get(:sandbox_case_log_ref) do
       nil -> find_log_ref_in_callers(Process.get(:"$callers") || [])
