@@ -92,6 +92,7 @@ defmodule SandboxCase.Sandbox.Logger do
         |> Enum.filter(fn entry ->
           Map.get(@level_severity, entry.level, 0) >= threshold
         end)
+        |> Enum.reject(&ownership_error_during_cleanup?/1)
 
       if failing != [] do
         messages = Enum.map_join(failing, "\n  ", &"[#{&1.level}] #{&1.message}")
@@ -221,7 +222,8 @@ defmodule SandboxCase.Sandbox.Logger do
       nil -> :ok
       ref ->
         message = format_message(msg)
-        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta}})
+        during_cleanup = Process.get(:sandbox_case_cleanup, false)
+        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta, during_cleanup: during_cleanup}})
     end
   catch
     _, _ -> :ok
@@ -256,6 +258,13 @@ defmodule SandboxCase.Sandbox.Logger do
   catch
     _, _ -> find_log_ref_in_callers(rest)
   end
+
+  defp ownership_error_during_cleanup?(%{during_cleanup: true, message: message}) do
+    String.contains?(message, "OwnershipError") or
+      String.contains?(message, "cannot find ownership process")
+  end
+
+  defp ownership_error_during_cleanup?(_), do: false
 
   defp ensure_handler_installed do
     unless @handler_id in :logger.get_handler_ids() do

@@ -99,6 +99,9 @@ defmodule SandboxCase.Sandbox do
   def checkin(%{owner: owner, tokens: tokens}) do
     await_orphans(owner)
 
+    # Mark cleanup started — Logger will ignore OwnershipErrors after this
+    Process.put(:sandbox_case_cleanup, true)
+
     # Rollback Ecto first — stuck queries fail with rollback error,
     # not connection death. Error logs are still captured (Logger
     # hasn't checked in yet).
@@ -120,6 +123,7 @@ defmodule SandboxCase.Sandbox do
       adapter.checkin(token)
     end
 
+    Process.delete(:sandbox_case_cleanup)
     :ok
   end
 
