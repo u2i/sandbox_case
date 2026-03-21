@@ -133,17 +133,29 @@ defmodule SandboxCase.Sandbox do
 
     Process.list()
     |> Enum.filter(fn pid ->
-      pid != self_pid and pid != owner and has_caller?(pid, owner)
+      pid != self_pid and pid != owner and spawned_by_test?(pid, owner)
     end)
   end
 
-  defp has_caller?(pid, owner) do
+  # An orphan is a process that has the test pid in its $callers
+  # but is NOT part of a system supervision tree. OTP sets $ancestors
+  # for supervised processes — but if the ancestor is the test pid
+  # itself, it's a test-spawned process (e.g. Task.start), not a
+  # system process.
+  defp spawned_by_test?(pid, owner) do
     case :erlang.process_info(pid, :dictionary) do
       {:dictionary, dict} ->
-        case List.keyfind(dict, :"$callers", 0) do
+        has_caller = case List.keyfind(dict, :"$callers", 0) do
           {:"$callers", callers} -> owner in callers
           _ -> false
         end
+
+        system_supervised = case List.keyfind(dict, :"$ancestors", 0) do
+          {:"$ancestors", ancestors} -> not (owner in ancestors)
+          _ -> false
+        end
+
+        has_caller and not system_supervised
 
       _ ->
         false
