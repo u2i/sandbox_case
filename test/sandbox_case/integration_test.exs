@@ -105,6 +105,14 @@ defmodule SandboxCase.IntegrationTest do
       assert Enum.any?(logs, &(&1.message =~ "hello from this test"))
     end
 
+    test "captures logs from controller requests", %{sandbox: sandbox} do
+      conn = build_conn() |> get("/page")
+      assert conn.status == 200
+
+      logs = SandboxCase.Sandbox.Logger.get_logs(sandbox)
+      assert Enum.any?(logs, &(&1.message =~ "page controller hit"))
+    end
+
     test "logs don't leak between tests", %{sandbox: sandbox} do
       require Logger
       Logger.info("different test")

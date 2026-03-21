@@ -11,6 +11,9 @@ defmodule SandboxCase.TestApp.Router do
   scope "/" do
     pipe_through :browser
 
+    get "/page", SandboxCase.TestApp.PageController, :index
+    get "/error", SandboxCase.TestApp.PageController, :error
+
     live_session :default do
       live "/items", SandboxCase.TestApp.ItemsLive
       live "/greeting", SandboxCase.TestApp.GreetingLive
