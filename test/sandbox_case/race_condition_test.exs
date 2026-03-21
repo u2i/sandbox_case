@@ -89,4 +89,74 @@ defmodule SandboxCase.RaceConditionTest do
       assert :ok = SandboxCase.Sandbox.checkin(sandbox2)
     end
   end
+
+  describe "OwnershipError swallowing during cleanup" do
+    test "OwnershipError during cleanup does not fail the test" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      Task.start(fn ->
+        require Logger
+        # Wait for Ecto rollback to happen
+        Process.sleep(300)
+
+        # This simulates what happens when a Cachex Courier or start_async
+        # task tries DB access after the sandbox is rolled back
+        try do
+          Repo.all(Item)
+        rescue
+          e -> Logger.error("OwnershipError: #{Exception.message(e)}")
+        end
+      end)
+
+      # Checkin rolls back Ecto, which causes the task's query to fail
+      # with OwnershipError. This should NOT fail the test because
+      # it happened during cleanup.
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
+    test "OwnershipError during test body DOES fail the test" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      require Logger
+      # This OwnershipError happens during the test body (before checkin),
+      # not during cleanup — it should fail.
+      Logger.error("cannot find ownership process for some PID")
+
+      assert_raise RuntimeError, ~r/unconsumed log/, fn ->
+        SandboxCase.Sandbox.checkin(sandbox)
+      end
+    end
+
+    test "non-OwnershipError during cleanup still fails" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      Task.start(fn ->
+        require Logger
+        Process.sleep(300)
+        Logger.error("something completely different broke")
+      end)
+
+      # Non-OwnershipError during cleanup should still fail
+      assert_raise RuntimeError, ~r/unconsumed log/, fn ->
+        SandboxCase.Sandbox.checkin(sandbox)
+      end
+    end
+
+    test "cleanup flag is scoped to the checkin — doesn't leak" do
+      # First test: normal checkin with cleanup
+      sandbox1 = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+      SandboxCase.Sandbox.checkin(sandbox1)
+
+      # Second test: cleanup flag should be cleared
+      sandbox2 = SandboxCase.Sandbox.checkout(sandbox: [logger: [fail_on: :error]])
+
+      require Logger
+      Logger.error("OwnershipError: should not be swallowed here")
+
+      # This should fail — cleanup flag from test 1 shouldn't leak
+      assert_raise RuntimeError, ~r/unconsumed log/, fn ->
+        SandboxCase.Sandbox.checkin(sandbox2)
+      end
+    end
+  end
 end
