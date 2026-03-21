@@ -129,6 +129,18 @@ defmodule SandboxCase.RaceConditionTest do
       end
     end
 
+    test "OwnershipError during test body is NOT swallowed" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      require Logger
+      # This happens before checkin — cleanup flag not set yet
+      Logger.error("DBConnection.OwnershipError: cannot find ownership process")
+
+      assert_raise RuntimeError, ~r/unconsumed log/, fn ->
+        SandboxCase.Sandbox.checkin(sandbox)
+      end
+    end
+
     test "real errors during test body are not swallowed" do
       sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
 

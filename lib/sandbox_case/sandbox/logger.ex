@@ -222,7 +222,8 @@ defmodule SandboxCase.Sandbox.Logger do
       nil -> :ok
       ref ->
         message = format_message(msg)
-        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta}})
+        logged_at = System.monotonic_time(:millisecond)
+        :ets.insert(@table, {ref, %{level: level, message: message, metadata: meta, logged_at: logged_at}})
     end
   catch
     _, _ -> :ok
@@ -258,13 +259,18 @@ defmodule SandboxCase.Sandbox.Logger do
     _, _ -> find_log_ref_in_callers(rest)
   end
 
-  # OwnershipErrors are sandbox artifacts — they can't happen in production
-  # (no sandbox). If a test produces one, the DB operation itself would
-  # have raised, failing the test directly. The log entry is just noise.
-  defp ownership_error_during_cleanup?(%{message: message}) do
-    String.contains?(message, "OwnershipError") or
-      String.contains?(message, "cannot find ownership process")
+  # Only swallow OwnershipErrors logged after cleanup started.
+  # During the test body, an OwnershipError means broken sandbox wiring.
+  defp ownership_error_during_cleanup?(%{message: message, logged_at: logged_at}) do
+    cleanup_started = Process.get(:sandbox_case_cleanup)
+
+    cleanup_started != nil and
+      logged_at >= cleanup_started and
+      (String.contains?(message, "OwnershipError") or
+         String.contains?(message, "cannot find ownership process"))
   end
+
+  defp ownership_error_during_cleanup?(_), do: false
 
   defp ensure_handler_installed do
     unless @handler_id in :logger.get_handler_ids() do
