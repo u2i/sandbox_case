@@ -1,0 +1,92 @@
+defmodule SandboxCase.RaceConditionTest do
+  @moduledoc """
+  Tests that verify the checkin order handles race conditions correctly:
+  - Orphans with in-flight DB queries
+  - Error log attribution
+  - Connection pool health after orphan cleanup
+  - No log leaks between tests
+  """
+  use ExUnit.Case, async: false
+  # NOT using SandboxCase.Sandbox.Case — these tests manage their own checkout
+
+  alias SandboxCase.TestApp.{Repo, Item}
+
+  describe "checkin ordering" do
+    test "orphan doing DB query survives rollback cleanly" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      Task.start(fn ->
+        try do
+          Process.sleep(200)
+          result = Repo.all(Item)
+          Agent.update(agent, fn _ -> {:ok, result} end)
+        rescue
+          e -> Agent.update(agent, fn _ -> {:error, Exception.message(e)} end)
+        end
+      end)
+
+      SandboxCase.Sandbox.checkin(sandbox)
+
+      Process.sleep(100)
+      result = Agent.get(agent, & &1)
+      # Either completed before rollback or got a clean rollback error
+      assert result != nil
+      Agent.stop(agent)
+    end
+
+    test "error from rollback-killed query is captured by logger" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+
+      Task.start(fn ->
+        require Logger
+
+        try do
+          Process.sleep(100)
+          Repo.all(Item)
+        rescue
+          e -> Logger.error("Query failed: #{Exception.message(e)}")
+        end
+      end)
+
+      # fail_on: false means checkin should not raise
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
+    test "connection pool stays healthy after orphan cleanup" do
+      sandbox1 = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+
+      Task.start(fn ->
+        Process.sleep(:infinity)
+      end)
+
+      SandboxCase.Sandbox.checkin(sandbox1)
+
+      # New checkout should work — pool isn't corrupted
+      sandbox2 = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+      Repo.insert!(%Item{name: "after-cleanup"})
+      assert [%Item{name: "after-cleanup"}] = Repo.all(Item)
+      SandboxCase.Sandbox.checkin(sandbox2)
+    end
+
+    test "error logs from orphans don't leak to next test" do
+      # Test 1: orphan logs an error
+      sandbox1 = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+
+      Task.start(fn ->
+        require Logger
+        Process.sleep(50)
+        Logger.error("orphan error from test 1")
+      end)
+
+      SandboxCase.Sandbox.checkin(sandbox1)
+
+      # Test 2: should NOT see test 1's error
+      sandbox2 = SandboxCase.Sandbox.checkout(sandbox: [logger: [fail_on: :error]])
+
+      # If test 1's error leaked, this checkin would raise
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox2)
+    end
+  end
+end

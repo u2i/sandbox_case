@@ -36,7 +36,15 @@ defmodule SandboxCase.Sandbox.Ecto do
   end
 
   @impl true
-  def checkin(_token), do: :ok
+  def checkin(%{repos: repos}) do
+    for repo <- repos do
+      Ecto.Adapters.SQL.Sandbox.checkin(repo)
+    end
+
+    :ok
+  end
+
+  def checkin(_), do: :ok
 
   @impl true
   def plugs do
