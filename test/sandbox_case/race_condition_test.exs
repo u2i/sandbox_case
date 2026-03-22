@@ -91,6 +91,22 @@ defmodule SandboxCase.RaceConditionTest do
   end
 
   describe "OwnershipError swallowing during cleanup" do
+    test "OwnershipError logged during session close (before checkin) is swallowed" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      # Simulate what wallabidi Feature does:
+      # 1. Mark cleanup started (before closing sessions)
+      # 2. Sessions close → Tasks crash with OwnershipError
+      # 3. checkin runs
+      SandboxCase.Sandbox.mark_cleanup_started()
+
+      require Logger
+      Logger.error("Task #PID<0.1234.0> started from #PID<0.5678.0> terminating\n** (DBConnection.OwnershipError) cannot find ownership process")
+
+      # Should be swallowed — cleanup was marked before the error
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
     test "OwnershipError during cleanup does not fail the test" do
       sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
 

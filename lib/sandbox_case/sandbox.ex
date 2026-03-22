@@ -97,10 +97,8 @@ defmodule SandboxCase.Sandbox do
   5. Check unconsumed logs + checkin remaining adapters
   """
   def checkin(%{owner: owner, tokens: tokens}) do
-    await_orphans(owner)
 
-    # Mark cleanup start time — OwnershipErrors logged after this are sandbox noise
-    Process.put(:sandbox_case_cleanup, System.monotonic_time(:millisecond))
+    await_orphans(owner)
 
     # Rollback Ecto first — stuck queries fail with rollback error,
     # not connection death. Error logs are still captured (Logger
@@ -125,6 +123,17 @@ defmodule SandboxCase.Sandbox do
 
     Process.delete(:sandbox_case_cleanup)
     :ok
+  end
+
+  @doc """
+  Mark that cleanup has started. Call before closing browser sessions
+  or other teardown that may trigger OwnershipErrors. Errors logged
+  after this point are swallowed at checkin.
+  """
+  def mark_cleanup_started do
+    unless Process.get(:sandbox_case_cleanup) do
+      Process.put(:sandbox_case_cleanup, System.monotonic_time(:millisecond))
+    end
   end
 
   @orphan_timeout 5_000
