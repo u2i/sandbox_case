@@ -68,6 +68,26 @@ defmodule SandboxCase.Sandbox do
       SandboxCase.Sandbox.DeadlockDetector.setup(config)
     end
 
+    if lm_config = sandbox_config[:lock_monitor] do
+      config = if is_list(lm_config), do: lm_config, else: []
+
+      # Auto-discover repo if not specified
+      config =
+        if config[:repo] do
+          config
+        else
+          otp_app = opts[:otp_app] || Application.get_env(:sandbox_case, :otp_app)
+          repos = if otp_app, do: Application.get_env(otp_app, :ecto_repos, []), else: []
+
+          case List.first(repos) do
+            nil -> config
+            repo -> Keyword.put(config, :repo, repo)
+          end
+        end
+
+      SandboxCase.Sandbox.LockMonitor.start_link(config)
+    end
+
     :ok
   end
 
