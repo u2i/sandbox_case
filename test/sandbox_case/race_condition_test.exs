@@ -91,20 +91,43 @@ defmodule SandboxCase.RaceConditionTest do
   end
 
   describe "OwnershipError swallowing during cleanup" do
-    test "OwnershipError logged during session close (before checkin) is swallowed" do
+    test "on_cleanup callback runs before rollback, OwnershipErrors are swallowed" do
       sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
 
-      # Simulate what wallabidi Feature does:
-      # 1. Mark cleanup started (before closing sessions)
-      # 2. Sessions close → Tasks crash with OwnershipError
-      # 3. checkin runs
-      SandboxCase.Sandbox.mark_cleanup_started()
+      SandboxCase.Sandbox.on_cleanup(sandbox, fn ->
+        require Logger
+        Logger.error("Task terminating\n** (DBConnection.OwnershipError) cannot find ownership process")
+      end)
 
-      require Logger
-      Logger.error("Task #PID<0.1234.0> started from #PID<0.5678.0> terminating\n** (DBConnection.OwnershipError) cannot find ownership process")
-
-      # Should be swallowed — cleanup was marked before the error
       assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
+    test "owner exited errors during cleanup are swallowed" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: :error]])
+
+      SandboxCase.Sandbox.on_cleanup(sandbox, fn ->
+        require Logger
+        Logger.error("Task terminating\n** (KeyError) key :id not found in: {{:shutdown, \"owner #PID<0.1234.0> exited\"}, {DBConnection.Holder, :checkout, []}}")
+      end)
+
+      assert :ok = SandboxCase.Sandbox.checkin(sandbox)
+    end
+
+    test "on_cleanup callback runs before await_orphans" do
+      sandbox = SandboxCase.Sandbox.checkout(sandbox: [ecto: true, logger: [fail_on: false]])
+
+      {:ok, agent} = Agent.start_link(fn -> false end)
+
+      # Register cleanup that sets a flag
+      SandboxCase.Sandbox.on_cleanup(sandbox, fn ->
+        Agent.update(agent, fn _ -> true end)
+      end)
+
+      SandboxCase.Sandbox.checkin(sandbox)
+
+      # Callback ran
+      assert Agent.get(agent, & &1) == true
+      Agent.stop(agent)
     end
 
     test "OwnershipError during cleanup does not fail the test" do

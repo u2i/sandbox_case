@@ -89,14 +89,47 @@ defmodule SandboxCase.Sandbox do
   end
 
   @doc """
+  Register a cleanup callback to run during checkin, before sandbox
+  rollback. Use for teardown that triggers processes needing DB access
+  (e.g. closing browser sessions that kill LiveViews mid-transaction).
+
+      SandboxCase.Sandbox.on_cleanup(sandbox, fn ->
+        Wallabidi.end_session(session)
+      end)
+
+  Callbacks run in registration order, before await_orphans.
+  OwnershipErrors logged during callbacks are swallowed.
+  """
+  def on_cleanup(%{owner: _} = _sandbox, fun) when is_function(fun, 0) do
+    callbacks = Process.get(:sandbox_case_cleanup_callbacks, [])
+    Process.put(:sandbox_case_cleanup_callbacks, callbacks ++ [fun])
+  end
+
+  @doc """
   Per-test checkin. Order matters:
-  1. Wait for orphans to finish naturally
-  2. Rollback Ecto sandbox (stuck queries fail cleanly, connections stay healthy)
-  3. Brief wait for rollback-triggered process deaths
+  1. Run cleanup callbacks (e.g. close browser sessions)
+  2. Wait for orphans to finish naturally
+  3. Rollback Ecto sandbox
   4. Kill any remaining orphans
   5. Check unconsumed logs + checkin remaining adapters
   """
   def checkin(%{owner: owner, tokens: tokens}) do
+    # Run cleanup callbacks — mark cleanup so OwnershipErrors are swallowed
+    callbacks = Process.get(:sandbox_case_cleanup_callbacks, [])
+
+    if callbacks != [] do
+      mark_cleanup_started()
+
+      for fun <- callbacks do
+        try do
+          fun.()
+        rescue
+          _ -> :ok
+        end
+      end
+    end
+
+    Process.delete(:sandbox_case_cleanup_callbacks)
 
     await_orphans(owner)
 

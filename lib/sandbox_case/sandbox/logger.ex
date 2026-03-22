@@ -267,7 +267,8 @@ defmodule SandboxCase.Sandbox.Logger do
     cleanup_started != nil and
       logged_at >= cleanup_started and
       (String.contains?(message, "OwnershipError") or
-         String.contains?(message, "cannot find ownership process"))
+         String.contains?(message, "cannot find ownership process") or
+         String.contains?(message, "owner") and String.contains?(message, "exited"))
   end
 
   defp ownership_error_during_cleanup?(_), do: false
