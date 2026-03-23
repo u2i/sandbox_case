@@ -9,8 +9,10 @@ defmodule SandboxCase.Sandbox.Ecto do
 
   @impl true
   def setup(config) do
+    sql_sandbox = Module.concat([Ecto, Adapters, SQL, Sandbox])
+
     for repo <- repos(config) do
-      Ecto.Adapters.SQL.Sandbox.mode(repo, :manual)
+      sql_sandbox.mode(repo, :manual)
     end
 
     :ok
@@ -19,17 +21,20 @@ defmodule SandboxCase.Sandbox.Ecto do
   @impl true
   def checkout(config) do
     async? = config[:async?] || false
+    sql_sandbox = Module.concat([Ecto, Adapters, SQL, Sandbox])
 
     repos = repos(config)
 
     for repo <- repos do
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(repo)
-      unless async?, do: Ecto.Adapters.SQL.Sandbox.mode(repo, {:shared, self()})
+      :ok = sql_sandbox.checkout(repo)
+      unless async?, do: sql_sandbox.mode(repo, {:shared, self()})
     end
 
+    phoenix_sandbox = Module.concat([Phoenix, Ecto, SQL, Sandbox])
+
     metadata =
-      if Code.ensure_loaded?(Phoenix.Ecto.SQL.Sandbox) and repos != [] do
-        Phoenix.Ecto.SQL.Sandbox.metadata_for(repos, self())
+      if Code.ensure_loaded?(phoenix_sandbox) and repos != [] do
+        phoenix_sandbox.metadata_for(repos, self())
       end
 
     %{repos: repos, metadata: metadata}
@@ -37,8 +42,10 @@ defmodule SandboxCase.Sandbox.Ecto do
 
   @impl true
   def checkin(%{repos: repos}) do
+    sql_sandbox = Module.concat([Ecto, Adapters, SQL, Sandbox])
+
     for repo <- repos do
-      Ecto.Adapters.SQL.Sandbox.checkin(repo)
+      sql_sandbox.checkin(repo)
     end
 
     :ok
@@ -48,7 +55,7 @@ defmodule SandboxCase.Sandbox.Ecto do
 
   @impl true
   def plugs do
-    plug = Phoenix.Ecto.SQL.Sandbox
+    plug = Module.concat([Phoenix, Ecto, SQL, Sandbox])
     sandbox_plug = SandboxCase.Sandbox.Plug
 
     Enum.filter([plug, sandbox_plug], &Code.ensure_loaded?/1)

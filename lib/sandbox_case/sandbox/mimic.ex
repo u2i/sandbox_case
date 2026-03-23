@@ -9,10 +9,11 @@ defmodule SandboxCase.Sandbox.Mimic do
 
   @impl true
   def setup(config) do
+    mimic = Module.concat([Mimic])
     modules = config[:modules] || config
 
     for mod <- modules do
-      Mimic.copy(mod)
+      mimic.copy(mod)
     end
 
     :ok

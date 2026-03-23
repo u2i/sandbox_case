@@ -9,10 +9,11 @@ defmodule SandboxCase.Sandbox.Mox do
 
   @impl true
   def setup(config) do
+    mox = Module.concat([Mox])
     mocks = config[:mocks] || config
 
     for {mock_module, behaviour} <- mocks do
-      Mox.defmock(mock_module, for: behaviour)
+      mox.defmock(mock_module, for: behaviour)
     end
 
     :ok

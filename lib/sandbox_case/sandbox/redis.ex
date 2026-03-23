@@ -33,13 +33,14 @@ defmodule SandboxCase.Sandbox.Redis do
 
   @impl true
   def setup(config) do
+    redix = Module.concat([Redix])
     pool_size = config[:pool_size] || System.schedulers_online()
     url = config[:url] || "redis://localhost:6379"
 
     conns =
       for db <- 1..pool_size do
-        {:ok, conn} = Redix.start_link(url, database: db)
-        Redix.command!(conn, ["FLUSHDB"])
+        {:ok, conn} = redix.start_link(url, database: db)
+        redix.command!(conn, ["FLUSHDB"])
         conn
       end
 
@@ -49,9 +50,11 @@ defmodule SandboxCase.Sandbox.Redis do
 
   @impl true
   def checkout(_config) do
+    redix = Module.concat([Redix])
+
     if Process.whereis(__MODULE__) do
       conn = GenServer.call(__MODULE__, :checkout)
-      Redix.command!(conn, ["FLUSHDB"])
+      redix.command!(conn, ["FLUSHDB"])
       Process.put(:redis_sandbox, conn)
       conn
     end
@@ -89,7 +92,7 @@ defmodule SandboxCase.Sandbox.Redis do
   def handle_call({:checkin, conn}, _from, %{available: available, waiting: waiting} = state) do
     case :queue.out(waiting) do
       {{:value, next}, new_waiting} ->
-        Redix.command!(conn, ["FLUSHDB"])
+        Module.concat([Redix]).command!(conn, ["FLUSHDB"])
         GenServer.reply(next, conn)
         {:reply, :ok, %{state | waiting: new_waiting}}
 

@@ -72,7 +72,8 @@ defmodule SandboxCase.Sandbox.Cachex do
       for i <- 1..pool_size do
         for name <- cache_names, into: %{} do
           instance_name = :"#{name}_sandbox_#{i}"
-          {:ok, _} = Cachex.start_link(instance_name)
+          cachex = Module.concat([Cachex])
+          {:ok, _} = cachex.start_link(instance_name)
           {name, instance_name}
         end
       end
@@ -103,7 +104,8 @@ defmodule SandboxCase.Sandbox.Cachex do
   end
 
   defp clear_all(instance_map) do
-    for {_name, instance} <- instance_map, do: Cachex.clear(instance)
+    cachex = Module.concat([Cachex])
+    for {_name, instance} <- instance_map, do: cachex.clear(instance)
   end
 
   defp extract_names(config) when is_list(config) do

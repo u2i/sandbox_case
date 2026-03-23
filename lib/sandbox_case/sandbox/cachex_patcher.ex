@@ -4,19 +4,19 @@ defmodule SandboxCase.Sandbox.CachexPatcher do
   # process dictionary (and $callers) for sandbox overrides. This allows
   # sandbox_case to work with vanilla Cachex (no fork required).
 
-  @target Cachex.Services.Overseer
-
   @doc false
   def patch! do
+    target = target_module()
+
     cond do
-      not Code.ensure_loaded?(@target) ->
+      not Code.ensure_loaded?(target) ->
         :not_loaded
 
-      already_patched?() ->
+      already_patched?(target) ->
         :already_patched
 
-      expected_vanilla?() ->
-        do_patch()
+      expected_vanilla?(target) ->
+        do_patch(target)
 
       true ->
         require Logger
@@ -31,25 +31,27 @@ defmodule SandboxCase.Sandbox.CachexPatcher do
     end
   end
 
+  defp target_module, do: Module.concat([Cachex, Services, Overseer])
+
   # Our patch includes find_sandbox_in_callers — check for it
-  defp already_patched? do
-    source = get_beam_source()
+  defp already_patched?(target) do
+    source = get_beam_source(target)
     source != nil and String.contains?(source, "find_sandbox_in_callers")
   end
 
   # Vanilla Cachex has retrieve/1 with a direct ETS lookup, no sandbox logic
-  defp expected_vanilla? do
-    exports = @target.__info__(:functions)
-    {:retrieve, 1} in exports and not has_sandbox_logic?()
+  defp expected_vanilla?(target) do
+    exports = target.__info__(:functions)
+    {:retrieve, 1} in exports and not has_sandbox_logic?(target)
   end
 
-  defp has_sandbox_logic? do
-    source = get_beam_source()
+  defp has_sandbox_logic?(target) do
+    source = get_beam_source(target)
     source != nil and String.contains?(source, "cachex_sandbox")
   end
 
-  defp get_beam_source do
-    case :code.get_object_code(@target) do
+  defp get_beam_source(target) do
+    case :code.get_object_code(target) do
       {_, beam, _} ->
         case :beam_lib.chunks(beam, [:abstract_code]) do
           {:ok, {_, [{:abstract_code, {:raw_abstract_v1, forms}}]}} ->
@@ -66,11 +68,11 @@ defmodule SandboxCase.Sandbox.CachexPatcher do
     _ -> nil
   end
 
-  defp do_patch do
+  defp do_patch(target) do
     Code.compiler_options(ignore_module_conflict: true)
 
     Module.create(
-      @target,
+      target,
       patched_module_ast(),
       Macro.Env.location(__ENV__)
     )
