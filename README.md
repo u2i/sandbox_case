@@ -23,6 +23,43 @@ One config, one setup call, zero boilerplate. Built-in adapters for Ecto, Cachex
 
 All macros expand at compile time. Outside `MIX_ENV=test`, `sandbox_plugs` and `sandbox_on_mount` emit nothing, and `socket_with_sandbox` emits a plain `socket` call. No runtime checks, no dead branches, no production dependencies on test libraries.
 
+### How Cachex and FunWithFlags isolation works (and version compatibility)
+
+Ecto, Mimic, and Mox expose first-class hooks for redirecting state per
+process. Cachex and FunWithFlags do **not** — neither library has a
+supported way to route a cache/flag lookup to a different backing store
+based on the calling process. To isolate them per test *without forking*,
+sandbox_case **patches them at runtime** (in `MIX_ENV=test` only): it
+reads the dependency module's compiled `:abstract_code`, rewrites it, and
+replaces the module via `Module.create`, so that when a sandbox marker is
+present in the process dictionary (or reachable via `$callers`), reads and
+writes route to an isolated ETS table instead of the shared store.
+
+> ⚠️ **Version coupling.** Because this rewrites the dependency's own
+> internals, it is tied to the implementation shape of specific versions.
+> The patchers are written and tested against:
+>
+> | Library | Tested version | Patched surface |
+> |---------|----------------|-----------------|
+> | Cachex | `4.1.x` | `Cachex.Services.Overseer` name resolution |
+> | FunWithFlags | `1.13.x` | `FunWithFlags.Store` / `SimpleStore` |
+>
+> Each patcher **probes the target's shape before patching** and, if it
+> doesn't match (a newer version refactored the internals), **skips the
+> patch and logs a warning** rather than crashing. The failure mode is
+> therefore *lost isolation with a warning*, not a hard error — so if you
+> upgrade Cachex/FunWithFlags past the tested range, watch the test logs
+> for `SandboxCase: ... doesn't match expected shape`. (Note: Cachex on
+> its `main` branch has already renamed the patched `Overseer.retrieve/1`
+> to `lookup/1`, so the next Cachex release is expected to trip this.)
+>
+> The long-term fix is a supported, non-bytecode hook upstream — see
+> [whitfin/cachex#436](https://github.com/whitfin/cachex/pull/436), which
+> proposes a per-process name resolver. FunWithFlags can already be
+> isolated without patching via a custom `FunWithFlags.Store.Persistent`
+> adapter plus `config :fun_with_flags, :cache, enabled: false`; a future
+> sandbox_case release is expected to move to that approach.
+
 ## Installation
 
 ```elixir
