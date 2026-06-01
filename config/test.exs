@@ -12,6 +12,16 @@ config :sandbox_case, SandboxCase.TestApp.Endpoint,
   render_errors: [formats: [html: SandboxCase.ErrorHTML], layout: false],
   live_view: [signing_salt: "test_signing_salt"]
 
+# FunWithFlags: route persistence through the sandbox adapter (which
+# delegates to the Ecto backend when not sandboxed) and disable the cache
+# so every lookup reaches the sandbox-aware store.
+config :fun_with_flags, :persistence,
+  adapter: SandboxCase.Sandbox.FwfAdapter,
+  sandbox_real_adapter: FunWithFlags.Store.Persistent.Ecto,
+  repo: SandboxCase.TestApp.Repo
+
+config :fun_with_flags, :cache, enabled: false
+
 config :sandbox_case,
   otp_app: :sandbox_case,
   ecto_repos: [SandboxCase.TestApp.Repo],

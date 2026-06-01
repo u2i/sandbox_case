@@ -1,13 +1,30 @@
 defmodule SandboxCase.Sandbox.FunWithFlags do
   @moduledoc """
-  Sandbox adapter for FunWithFlags. Works with vanilla FunWithFlags — no fork required.
+  Sandbox adapter for FunWithFlags. Works with vanilla FunWithFlags — no
+  fork and no bytecode patching.
 
-  On setup, patches `FunWithFlags.Store` and `FunWithFlags.SimpleStore` to
-  check the process dictionary for sandbox overrides, then starts a pool
-  of isolated ETS tables.
+  Isolation is provided by a custom persistence adapter,
+  `SandboxCase.Sandbox.FwfAdapter`, which routes flag operations to an
+  isolated per-test ETS table when a `:fwf_sandbox` marker is present in
+  the process dictionary (or reachable via `$callers`), and delegates to
+  the real adapter otherwise. This module manages the pool of ETS tables
+  and the per-test checkout/checkin.
 
       config :sandbox_case,
         sandbox: [fun_with_flags: true]
+
+  The host app must point FunWithFlags at the sandbox adapter and disable
+  the cache in the test environment:
+
+      config :fun_with_flags, :persistence,
+        adapter: SandboxCase.Sandbox.FwfAdapter,
+        sandbox_real_adapter: FunWithFlags.Store.Persistent.Ecto,
+        repo: MyApp.Repo
+
+      config :fun_with_flags, :cache, enabled: false
+
+  `setup/1` validates this wiring and raises with guidance if it's missing
+  or wrong, rather than letting flag isolation silently leak.
   """
   @behaviour SandboxCase.Sandbox.Adapter
   use GenServer
@@ -19,18 +36,71 @@ defmodule SandboxCase.Sandbox.FunWithFlags do
 
   @impl true
   def setup(config) do
+    validate_config!()
+
     pool_size =
       case config do
         c when is_list(c) -> Keyword.get(c, :pool_size, System.schedulers_online())
         _ -> System.schedulers_online()
       end
 
-    # Patch Store/SimpleStore to check process dictionary
-    SandboxCase.Sandbox.FwfPatcher.patch!()
-
     # Start the pool
     {:ok, _} = GenServer.start_link(__MODULE__, pool_size, name: __MODULE__)
     :ok
+  end
+
+  # Verify the host app wired FunWithFlags for sandboxing. These are
+  # mistakes that otherwise manifest as silently-leaked flag state across
+  # async tests (or a confusing boot crash), so we fail loudly here.
+  defp validate_config! do
+    persistence = Application.get_env(:fun_with_flags, :persistence, [])
+    adapter = Keyword.get(persistence, :adapter)
+    real = Keyword.get(persistence, :sandbox_real_adapter)
+    cache_enabled = Keyword.get(Application.get_env(:fun_with_flags, :cache, []), :enabled, true)
+
+    cond do
+      adapter != SandboxCase.Sandbox.FwfAdapter ->
+        raise """
+        sandbox_case: FunWithFlags isolation requires the sandbox persistence adapter.
+
+        Configure (typically in config/test.exs):
+
+            config :fun_with_flags, :persistence,
+              adapter: SandboxCase.Sandbox.FwfAdapter,
+              sandbox_real_adapter: FunWithFlags.Store.Persistent.Ecto,
+              repo: MyApp.Repo
+
+        Found adapter: #{inspect(adapter)}
+        """
+
+      is_nil(real) or real == SandboxCase.Sandbox.FwfAdapter ->
+        raise """
+        sandbox_case: set `:sandbox_real_adapter` to the adapter to use when
+        not sandboxed (it must differ from SandboxCase.Sandbox.FwfAdapter):
+
+            config :fun_with_flags, :persistence,
+              adapter: SandboxCase.Sandbox.FwfAdapter,
+              sandbox_real_adapter: FunWithFlags.Store.Persistent.Ecto,
+              repo: MyApp.Repo
+
+        Found sandbox_real_adapter: #{inspect(real)}
+        """
+
+      cache_enabled ->
+        raise """
+        sandbox_case: disable the FunWithFlags cache in the test environment.
+
+        FunWithFlags keeps a single global ETS read-cache in front of the
+        store; with it enabled, one test's flag value can be served to
+        another concurrent test from that shared cache, bypassing the
+        sandbox. Set (compile-time, in config/test.exs):
+
+            config :fun_with_flags, :cache, enabled: false
+        """
+
+      true ->
+        :ok
+    end
   end
 
   @impl true
