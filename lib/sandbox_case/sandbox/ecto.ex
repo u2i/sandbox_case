@@ -32,8 +32,18 @@ defmodule SandboxCase.Sandbox.Ecto do
 
     phoenix_sandbox = Module.concat([Phoenix, Ecto, SQL, Sandbox])
 
+    # Only generate metadata for async (manual-mode) checkouts. In shared mode,
+    # all processes already have DB access without explicit allowances.
+    #
+    # Generating metadata in shared mode causes the Phoenix.Ecto.SQL.Sandbox plug
+    # to call allow(repo, owner, self()) inline during Phoenix.ConnTest dispatch.
+    # ConnTest runs the plug pipeline in the test process, so self() == owner,
+    # and allow(repo, owner, owner) overwrites the DBConnection ownership manager's
+    # {:owner, ref, proxy} entry with {:allowed, ref, proxy}. Subsequent DB
+    # checkouts in shared mode then crash the manager with a MatchError at the
+    # line that pattern-matches {:owner, _ref, proxy} = Map.fetch!(checkouts, shared).
     metadata =
-      if Code.ensure_loaded?(phoenix_sandbox) and repos != [] do
+      if async? and Code.ensure_loaded?(phoenix_sandbox) and repos != [] do
         phoenix_sandbox.metadata_for(repos, self())
       end
 
