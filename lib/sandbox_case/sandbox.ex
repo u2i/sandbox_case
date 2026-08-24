@@ -141,10 +141,11 @@ defmodule SandboxCase.Sandbox do
   @doc """
   Per-test checkin. Order matters:
   1. Run cleanup callbacks (e.g. close browser sessions)
-  2. Wait for orphans to finish naturally
-  3. Rollback Ecto sandbox
-  4. Kill any remaining orphans
-  5. Check unconsumed logs + checkin remaining adapters
+  2. Proactively stop mounted LiveViews (they won't exit on their own)
+  3. Wait for remaining orphans to finish naturally
+  4. Rollback Ecto sandbox
+  5. Kill any remaining orphans
+  6. Check unconsumed logs + checkin remaining adapters
   """
   def checkin(%{owner: owner, tokens: tokens}) do
     # Run cleanup callbacks — mark cleanup so OwnershipErrors are swallowed
@@ -163,6 +164,16 @@ defmodule SandboxCase.Sandbox do
     end
 
     Process.delete(:sandbox_case_cleanup_callbacks)
+
+    # A mounted Phoenix.LiveView process is a long-lived server, not
+    # finishing async work — it won't exit on its own just because the
+    # test that mounted it returned. Left to await_orphans, it survives
+    # the wait, then gets rollback-adjacent DB errors if a message (e.g.
+    # a PubSub broadcast from an unrelated concurrent test) arrives while
+    # Ecto is rolling back, before kill_orphans reaps it. Stop LiveViews
+    # explicitly, before that window opens, and let everything else keep
+    # the existing wait-then-kill treatment.
+    stop_liveviews(owner)
 
     orphan_timeout = Process.get(:sandbox_case_orphan_timeout, @orphan_timeout)
     survivors = await_orphans(owner, orphan_timeout)
@@ -276,6 +287,57 @@ defmodule SandboxCase.Sandbox do
 
       survivors
     end
+  end
+
+  # Stop mounted LiveView children immediately, before Ecto rollback,
+  # instead of waiting on them (they're long-lived servers, not
+  # finishing async work) or leaving them to a post-rollback kill.
+  # GenServer.stop/3 triggers the LiveView's normal terminate/shutdown
+  # path rather than an unceremonious :kill, and any failure here
+  # (already exiting, already gone, or genuinely stuck) is swallowed —
+  # a stuck view still gets caught by the existing await/kill sequence
+  # below, this is a fast path, not a required one.
+  @liveview_stop_timeout 1_000
+
+  defp stop_liveviews(owner) do
+    owner
+    |> find_test_children()
+    |> Enum.filter(&liveview_pid?/1)
+    |> Enum.each(fn pid ->
+      try do
+        GenServer.stop(pid, :normal, @liveview_stop_timeout)
+      catch
+        _, _ -> :ok
+      end
+    end)
+  end
+
+  # A process mounted via Phoenix.LiveView carries
+  # `$initial_call: {view_module, :mount, 3}` in its dictionary
+  # (Phoenix.LiveView.Channel sets this — see
+  # Process.put(:"$initial_call", {view, :mount, 3}) in its mount path).
+  # That is a generic OTP introspection convention, not a private API,
+  # and it names the *application's* view module, not
+  # Phoenix.LiveView.Channel itself — so confirming it really is a
+  # LiveView means checking that module declares the Phoenix.LiveView
+  # behaviour, not comparing against a hardcoded module. Works whether
+  # or not phoenix_live_view is a dependency of the consuming app at
+  # all: Code.ensure_loaded?/1 guards the behaviour check, and a
+  # dictionary shape that doesn't match anything Phoenix.LiveView-shaped
+  # (including no phoenix_live_view installed) just falls through to
+  # false, leaving that pid to the existing await/kill path unaffected.
+  defp liveview_pid?(pid) do
+    with true <- Code.ensure_loaded?(Phoenix.LiveView),
+         {:dictionary, dict} <- :erlang.process_info(pid, :dictionary),
+         {:"$initial_call", {module, :mount, 3}} <-
+           List.keyfind(dict, :"$initial_call", 0, false),
+         true <- Code.ensure_loaded?(module) do
+      Phoenix.LiveView in (module.module_info(:attributes)[:behaviour] || [])
+    else
+      _ -> false
+    end
+  catch
+    _, _ -> false
   end
 
   # Unregistered processes with the test pid in $callers.

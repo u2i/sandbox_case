@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `checkin/1` now proactively stops mounted `Phoenix.LiveView` processes
+  before Ecto rollback, instead of leaving them to the existing
+  wait-then-kill orphan sequence. A mounted LiveView is a long-lived
+  server, not finishing async work — `await_orphans` doesn't help it
+  exit, so it survived to the post-rollback window, where a message
+  arriving from an unrelated concurrent test (e.g. a PubSub broadcast
+  on a globally-scoped topic) could crash it with a
+  `DBConnection.OwnershipError` before `kill_orphans` reaped it.
+  LiveView processes are detected generically via the `$initial_call`
+  process-dictionary entry Phoenix.LiveView.Channel sets on mount,
+  confirmed against the `Phoenix.LiveView` behaviour — no hardcoded
+  module reference, and a no-op when `phoenix_live_view` isn't a
+  dependency at all. Everything else keeps the existing
+  `await_orphans`/`kill_orphans` treatment unchanged.
+
 ## [0.4.1] - 2026-06-30
 
 ### Fixed
