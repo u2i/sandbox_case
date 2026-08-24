@@ -296,6 +296,28 @@ defmodule SandboxCase.IntegrationTest do
       Process.sleep(10)
       refute Process.alive?(orphan)
     end
+
+    test "checkin proactively stops mounted LiveViews before the orphan wait", %{
+      sandbox: sandbox
+    } do
+      conn = build_conn_with_sandbox(sandbox)
+      {:ok, view, _html} = live(conn, "/items")
+      pid = view.pid
+
+      assert Process.alive?(pid)
+
+      ref = Process.monitor(pid)
+
+      :ok = SandboxCase.Sandbox.checkin(sandbox)
+
+      # stop_liveviews uses GenServer.stop/3, a graceful shutdown
+      # (exit reason :normal). A LiveView that instead survived to the
+      # post-rollback kill_orphans path would exit with :killed
+      # (Process.exit(pid, :kill)) — so the exit reason distinguishes
+      # "stopped proactively, before rollback" from "merely reaped
+      # afterward," without depending on timing.
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    end
   end
 
   defp build_conn_with_sandbox(sandbox) do
