@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/u2i/sandbox_case/compare/v0.4.3...v0.4.4) (2026-08-24)
+
+
+### Bug Fixes
+
+* use start_owner!/2 instead of checkout/2 for the correct owner semantics ([0aa8282](https://github.com/u2i/sandbox_case/commit/0aa8282ca7b0db425963c5c961cf281c77f317f4))
+
 ## [0.4.3](https://github.com/u2i/sandbox_case/compare/v0.4.2...v0.4.3) (2026-08-24)
 
 
