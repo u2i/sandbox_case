@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3](https://github.com/u2i/sandbox_case/compare/v0.4.2...v0.4.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* point [@source](https://github.com/source)_url and changelog links at the current u2i org ([7998221](https://github.com/u2i/sandbox_case/commit/799822196063198072d7d9261bc9a34fee5ad70a))
+
 ## [0.4.2] - 2026-08-24
 
 ### Fixed

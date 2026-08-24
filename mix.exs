@@ -2,7 +2,7 @@ defmodule SandboxCase.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/u2i/sandbox_case"
-  @version "0.4.2"
+  @version "0.4.3"
 
   def project do
     [
