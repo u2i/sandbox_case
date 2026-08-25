@@ -39,6 +39,38 @@ defmodule SandboxCase.IntegrationTest do
 
       assert render(view) =~ "Hello from test"
     end
+
+    # Regression test for a pid-mismatch bug introduced by the 0.4.4
+    # start_owner!/2 migration: `%{owner: ...}` in the wallabidi/
+    # phoenix_ecto User-Agent metadata was the Ecto owner Agent's pid,
+    # not the test process's — correct for Ecto's own ownership needs,
+    # but wrong for Mimic/Mox, whose stubs are always registered under
+    # the pid that actually called stub/expect (the test process).
+    # `live/2` in-process (as the test above uses) can't catch this: it
+    # inherits `$callers` via ordinary OTP process spawning regardless
+    # of what Propagator does. Only a genuinely unrelated process (no
+    # spawn ancestry from the test process, like a real Bandit
+    # connection or a wallabidi browser session's server-side request)
+    # exercises the metadata-driven propagation path this test targets.
+    test "propagate/2 lets an unrelated process see the test's Mimic stub", %{sandbox: sandbox} do
+      Mimic.stub(SandboxCase.TestApp.ExternalService, :greeting, fn ->
+        "Hello from test"
+      end)
+
+      %{owner: owner} = SandboxCase.Sandbox.ecto_metadata(sandbox)
+
+      {:ok, sup} = Task.Supervisor.start_link()
+
+      result =
+        sup
+        |> Task.Supervisor.async_nolink(fn ->
+          SandboxCase.Sandbox.Propagator.propagate(owner)
+          SandboxCase.TestApp.ExternalService.greeting()
+        end)
+        |> Task.await(5000)
+
+      assert result == "Hello from test"
+    end
   end
 
   describe "Mox stubs" do
