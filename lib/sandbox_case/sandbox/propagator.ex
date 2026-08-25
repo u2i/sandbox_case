@@ -5,18 +5,33 @@ defmodule SandboxCase.Sandbox.Propagator do
 
   @doc "Propagate all sandbox state from owner to the current process."
   def propagate(owner, child \\ self()) do
+    # propagate_keys first: set_callers needs the Ecto owner pid(s) the
+    # Ecto adapter stashed in `owner`'s dictionary (via its
+    # propagate_keys/1 callback) already copied into THIS process's
+    # dictionary before it can read them.
+    propagate_keys(owner)
     set_callers(owner)
     allow_mimic(owner, child)
     allow_mox(owner, child)
-    propagate_keys(owner)
   end
 
   # Ecto — set $callers so this process and its sub-processes can access
   # the test sandbox via the ownership chain. Avoids the deadlock that
   # occurs with allow/3.
+  #
+  # `owner` here is the TEST process (SandboxCase.Sandbox.checkout/1's
+  # self()), not itself a DBConnection owner under start_owner!/2 — the
+  # actual Ecto owner Agent pid(s) live in this process's own dictionary
+  # under SandboxCase.Sandbox.Ecto's propagate_keys/1 key, just copied
+  # over by propagate_keys/1 above. Extend $callers with THOSE, plus
+  # `owner` itself (harmless, and correct for any non-Ecto DBConnection-
+  # style ownership scheme that does use the test pid directly).
   defp set_callers(owner) do
+    ecto_owners = Process.get({SandboxCase.Sandbox.Ecto, :owners}, [])
     callers = Process.get(:"$callers") || []
-    unless owner in callers, do: Process.put(:"$callers", [owner | callers])
+    to_add = Enum.reject([owner | ecto_owners], &(&1 in callers))
+
+    if to_add != [], do: Process.put(:"$callers", to_add ++ callers)
   end
 
   defp allow_mimic(owner, child) do

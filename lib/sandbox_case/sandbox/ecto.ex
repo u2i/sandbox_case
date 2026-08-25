@@ -2,6 +2,13 @@ defmodule SandboxCase.Sandbox.Ecto do
   @moduledoc false
   @behaviour SandboxCase.Sandbox.Adapter
 
+  # Process-dictionary key, set on the TEST process by checkout/1, holding
+  # the real Ecto owner Agent pid(s) started via start_owner!/2. Read back
+  # by propagate_keys/1 so Propagator.set_callers/1 can extend $callers
+  # with the real Ecto owners, once `owner` itself has been corrected
+  # (below) to mean the test process rather than an Ecto Agent.
+  @callers_key {__MODULE__, :owners}
+
   @impl true
   def available? do
     Code.ensure_loaded?(Ecto.Adapters.SQL.Sandbox)
@@ -38,11 +45,19 @@ defmodule SandboxCase.Sandbox.Ecto do
     phoenix_sandbox = Module.concat([Phoenix, Ecto, SQL, Sandbox])
 
     repos = repos(config)
+    test_pid = self()
 
     owners =
       for repo <- repos do
         {repo, sql_sandbox.start_owner!(repo, shared: not async?)}
       end
+
+    # Stash the Ecto owner Agent pid(s) in the TEST process's own
+    # dictionary (not the metadata below) so Propagator.set_callers/1 can
+    # find them via propagate_keys/1 once it has already resolved the
+    # test process as `owner` -- see propagate_keys/1 for why this needs
+    # to be a separate channel from `metadata`'s `owner:` field.
+    Process.put(@callers_key, Enum.map(owners, &elem(&1, 1)))
 
     # Only generate metadata for async (manual-mode) checkouts. In shared
     # mode, all processes already have DB access without explicit
@@ -50,10 +65,21 @@ defmodule SandboxCase.Sandbox.Ecto do
     # there is no self-collision risk here: start_owner! already calls
     # allow(repo, owner_pid, test_pid) itself in the non-shared branch, so
     # the owner and the allowed caller are always distinct processes.
+    #
+    # Deliberately `owner: test_pid`, NOT the Ecto owner Agent(s) above:
+    # this metadata's `owner` is what Propagator.propagate/2 later uses
+    # for Mimic/Mox allowances and process-dictionary propagation, and
+    # those need the process that actually called Mimic.stub/Mox.expect
+    # (the test process) -- under 0.4.3's checkout/2, that coincided with
+    # the Ecto connection owner (both were the test process itself); with
+    # start_owner!/2 they're genuinely different processes, and
+    # conflating them here silently broke Mimic/Mox propagation (the stub
+    # ends up "allowed" under a pid -- the Ecto Agent -- that never
+    # actually called stub/expect, so Server.apply's lookup never finds
+    # it and falls through to the real, unstubbed implementation).
     metadata =
       if async? and Code.ensure_loaded?(phoenix_sandbox) and owners != [] do
-        {_first_repo, first_owner} = List.first(owners)
-        phoenix_sandbox.metadata_for(Enum.map(owners, &elem(&1, 0)), first_owner)
+        phoenix_sandbox.metadata_for(Enum.map(owners, &elem(&1, 0)), test_pid)
       end
 
     %{owners: owners, metadata: metadata}
@@ -98,6 +124,9 @@ defmodule SandboxCase.Sandbox.Ecto do
 
     if Code.ensure_loaded?(hook), do: [hook], else: []
   end
+
+  @impl true
+  def propagate_keys(_config), do: [@callers_key]
 
   defp repos(config) do
     case config[:repos] do
